@@ -1,0 +1,23 @@
+# Core dependencies
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+aiofiles>=23.0.0
+
+# Twitter scraping
+twikit>=1.0.0
+
+# Telegram scraping
+python-telegram-bot>=20.0
+telethon>=1.28.0
+
+# Data processing
+pandas>=2.0.0
+
+# Optional: For advanced features
+requests>=2.31.0
+httpx>=0.25.0
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0

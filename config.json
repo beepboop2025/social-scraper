@@ -1,0 +1,54 @@
+{
+  "twitter": {
+    "enabled": true,
+    "cookies_path": "cookies.json",
+    "username": null,
+    "email": null,
+    "password": null,
+    "bearer_token": null,
+    "api_key": null,
+    "api_secret": null,
+    "access_token": null,
+    "access_token_secret": null
+  },
+  "telegram": {
+    "enabled": true,
+    "bot_token": null,
+    "api_id": null,
+    "api_hash": null,
+    "phone_number": null,
+    "session_name": "telegram_scraper"
+  },
+  "settings": {
+    "output_directory": "./data",
+    "media_directory": "./media",
+    "output_format": "both",
+    "save_media": false,
+    "batch_size": 100,
+    "max_items_per_query": null,
+    "rate_limit_delay": 1.0,
+    "include_replies": false,
+    "include_retweets": true,
+    "date_since": null,
+    "date_until": null,
+    "language_filter": null
+  },
+  "news_sources": {
+    "telegram_channels": [
+      "@bbcnews",
+      "@cnn",
+      "@reuters_world"
+    ],
+    "twitter_accounts": [],
+    "twitter_search_queries": [
+      "breaking news",
+      "world news",
+      "tech news"
+    ],
+    "keywords": [
+      "breaking",
+      "urgent",
+      "announcement"
+    ]
+  }
+}
