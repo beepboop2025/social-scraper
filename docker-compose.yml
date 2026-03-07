@@ -4,15 +4,15 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: scraper
-      POSTGRES_PASSWORD: scraper
-      POSTGRES_DB: social_scraper
+      POSTGRES_USER: ${POSTGRES_USER:-scraper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-social_scraper}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scraper -d social_scraper"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scraper} -d ${POSTGRES_DB:-social_scraper}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -52,7 +52,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://scraper:scraper@postgres:5432/social_scraper
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
       postgres:
@@ -69,7 +69,7 @@ services:
       dockerfile: Dockerfile
     command: ["python", "-m", "pipeline.consumer"]
     environment:
-      DATABASE_URL: postgresql://scraper:scraper@postgres:5432/social_scraper
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
       postgres:

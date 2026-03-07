@@ -4,10 +4,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://scraper:scraper@localhost:5432/social_scraper",
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/social_scraper")
 
 engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=20, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
