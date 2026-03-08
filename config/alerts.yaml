@@ -27,3 +27,15 @@ alerts:
       null_threshold: 0.2      # >20% nulls in a batch
       duplicate_threshold: 0.5  # >50% duplicates
       severity: medium
+
+# Source health checker schedule
+health_checker:
+  schedule:
+    quick_check_hours: 6       # Quick reachability check interval
+    deep_check_time: "07:00"   # IST, daily deep check with AI analysis
+    report_retention_days: 90
+  alerts:
+    on_broken: true            # Source completely down
+    on_structure_change: true  # HTML structure changed
+    on_stale_data: true        # Data not updated for unusual period
+    on_new_opportunity: false  # New data source found (daily report only)

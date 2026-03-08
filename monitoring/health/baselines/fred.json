@@ -1,0 +1,35 @@
+{
+  "url": "https://fred.stlouisfed.org",
+  "http_status": 200,
+  "content_type": "text/html",
+  "key_selectors": [],
+  "table_count": 0,
+  "section_headers": [
+    "Explore Our Apps",
+    "FRED",
+    "FRASER",
+    "ALFRED",
+    "CASSIDI",
+    "Explore Our Apps",
+    "FRED",
+    "FRASER",
+    "ALFRED",
+    "CASSIDI",
+    "FRED Economic Data",
+    "Trending Search Terms:",
+    "Browse Data By:",
+    "At a Glance",
+    "News and Blog",
+    "Latest Releases",
+    "Featured",
+    "Subscribe to the FRED newsletter",
+    "Follow us",
+    "Need Help?"
+  ],
+  "download_url_patterns": [],
+  "response_size_range": [
+    53421,
+    63421
+  ],
+  "created_at": "2026-03-08T16:10:02.699162+05:30"
+}
