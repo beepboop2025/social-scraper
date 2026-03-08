@@ -115,6 +115,13 @@ def build_beat_schedule() -> dict:
         "options": {"queue": "health"},
     }
 
+    # ── Daily PDF report — 9:00 AM IST (3:30 AM UTC) ────
+    schedule["generate-daily-report"] = {
+        "task": "core.tasks.generate_and_email_report",
+        "schedule": crontab(hour=3, minute=30),
+        "options": {"queue": "processors"},
+    }
+
     # ── Social scraper schedules ─────────────────────────
     # These run alongside the YAML-driven collectors above.
 
@@ -203,6 +210,7 @@ app.conf.task_routes = {
     # Processors
     "core.tasks.process_pipeline": {"queue": "processors"},
     "core.tasks.generate_digest": {"queue": "processors"},
+    "core.tasks.generate_and_email_report": {"queue": "processors"},
     # Routing
     "core.tasks.route_to_destinations": {"queue": "routing"},
     # Health

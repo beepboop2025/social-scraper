@@ -574,6 +574,31 @@ def check_data_quality():
 
 
 @app.task
+def generate_and_email_report():
+    """Generate the daily World Intelligence PDF and email it."""
+    try:
+        from reports.pdf_generator import generate_report, _fetch_report_data
+        from reports.mailer import send_report_email
+
+        pdf_path = generate_report()
+        data = _fetch_report_data()
+        stats = {
+            "total_articles": data.get("total_articles", 0),
+            "total_sources": data.get("total_sources", 0),
+            "avg_sentiment": data.get("avg_sentiment", 0),
+        }
+        success = send_report_email(pdf_path=pdf_path, stats=stats)
+        return {
+            "status": "sent" if success else "email_failed",
+            "pdf_path": pdf_path,
+            "articles": stats["total_articles"],
+        }
+    except Exception as e:
+        logger.error(f"[Report] {e}")
+        return {"error": str(e)}
+
+
+@app.task
 def push_stats():
     """Push aggregate stats to DragonScope for monitoring dashboards."""
     try:
