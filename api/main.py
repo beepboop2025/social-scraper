@@ -26,20 +26,31 @@ from api.routes.data import router as data_router
 from api.routes.digest import router as digest_router
 from api.routes.health_v4 import router as monitoring_router
 
+# API Key Manager
+from apikeys.routes import router as keys_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[EconScraper] Initializing database tables...")
     init_db()
-    print("[EconScraper] v4.0.0 ready — modular economic data platform")
-    print("[EconScraper] 14 collectors | 8 processors | RAG-powered API")
+    # Auto-inject vault keys into runtime
+    try:
+        from apikeys.injector import KeyInjector
+        injector = KeyInjector()
+        result = injector.sync_from_vault()
+        print(f"[EconScraper] Injected {result.get('injected', 0)} API keys from vault")
+    except Exception:
+        pass
+    print("[EconScraper] v4.1.0 ready — modular economic data platform")
+    print("[EconScraper] 14 collectors | 8 processors | RAG-powered API | Key Manager")
     yield
     print("[EconScraper] Shutting down")
 
 
 app = FastAPI(
     title="EconScraper",
-    version="4.0.0",
+    version="4.1.0",
     description=(
         "Modular economic data collection and AI analysis platform. "
         "Plugin-based collectors for FRED, RBI, SEBI, NSE, World Bank, IMF, RSS feeds, "
@@ -71,6 +82,9 @@ app.include_router(trends_router, prefix="/api/v4")
 app.include_router(data_router, prefix="/api/v4")
 app.include_router(digest_router, prefix="/api/v4")
 app.include_router(monitoring_router, prefix="/api/v4")
+
+# API Key Manager
+app.include_router(keys_router, prefix="/api/v4")
 
 
 @app.get("/health")

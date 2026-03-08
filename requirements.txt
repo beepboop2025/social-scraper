@@ -57,6 +57,9 @@ minio>=7.1.0
 # LLM clients
 anthropic>=0.34.0
 
+# API key vault encryption
+cryptography>=41.0.0
+
 # Monitoring
 flower>=2.0.0
 
