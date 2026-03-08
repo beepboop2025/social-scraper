@@ -1,27 +1,27 @@
 version: "3.9"
 
 services:
-  # ── Database ──────────────────────────────────────────────────
+  # ── Database (TimescaleDB + pgvector) ────────────────────────
   postgres:
-    image: postgres:17-alpine
+    image: timescale/timescaledb-ha:pg17
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-scraper}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-      POSTGRES_DB: ${POSTGRES_DB:-social_scraper}
+      POSTGRES_DB: ${POSTGRES_DB:-econscraper}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scraper} -d ${POSTGRES_DB:-social_scraper}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scraper} -d ${POSTGRES_DB:-econscraper}"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ── Cache + Message Broker ────────────────────────────────────
+  # ── Cache + Celery Broker ────────────────────────────────────
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes
     ports:
       - "6379:6379"
     volumes:
@@ -32,7 +32,25 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── Kafka (for pipeline messaging) ────────────────────────────
+  # ── Object Storage (raw data) ────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-econscraper}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-econscraper123}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Kafka (pipeline messaging) ───────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.7.0
     environment:
@@ -61,18 +79,18 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Tor Proxy (for dark web scraping) ─────────────────────────
+  # ── Tor Proxy (dark web) ─────────────────────────────────────
   tor:
     image: dperson/torproxy:latest
     ports:
-      - "9050:9050"   # SOCKS5 proxy
-      - "8118:8118"   # HTTP proxy (Privoxy)
+      - "9050:9050"
+      - "8118:8118"
     environment:
       TOR_MaxCircuitDirtiness: 600
       TOR_NewCircuitPeriod: 120
     restart: unless-stopped
 
-  # ── FastAPI Backend ───────────────────────────────────────────
+  # ── FastAPI Backend ──────────────────────────────────────────
   api:
     build:
       context: .
@@ -80,16 +98,23 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-econscraper}
       REDIS_URL: redis://redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       TOR_PROXY: socks5://tor:9050
-      # Destination connections
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-econscraper}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-econscraper123}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      # Downstream apps
       DRAGONSCOPE_REDIS_URL: ${DRAGONSCOPE_REDIS_URL:-redis://redis:6379/1}
       DRAGONSCOPE_API_URL: ${DRAGONSCOPE_API_URL:-http://host.docker.internal:3456}
       LIQUIFI_REDIS_URL: ${LIQUIFI_REDIS_URL:-redis://redis:6379/2}
       LIQUIFI_API_URL: ${LIQUIFI_API_URL:-http://host.docker.internal:8001}
-      # API Keys
+      # Collector API keys
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      DATA_GOV_API_KEY: ${DATA_GOV_API_KEY:-}
       REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
       REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
@@ -98,6 +123,8 @@ services:
       TWITTER_COOKIES_PATH: ${TWITTER_COOKIES_PATH:-}
       TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
       TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALERT_CHAT_ID: ${TELEGRAM_ALERT_CHAT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,14 +136,77 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── NLP Worker (Kafka consumer for enrichment) ────────────────
+  # ── Celery Worker (collectors + processors) ──────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A core.scheduler worker
+      --queues=critical,high,default,background,health
+      --concurrency=6
+      --loglevel=info
+      --max-tasks-per-child=200
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-econscraper}
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      TOR_PROXY: socks5://tor:9050
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-econscraper}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-econscraper123}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      DRAGONSCOPE_REDIS_URL: ${DRAGONSCOPE_REDIS_URL:-redis://redis:6379/1}
+      DRAGONSCOPE_API_URL: ${DRAGONSCOPE_API_URL:-http://host.docker.internal:3456}
+      LIQUIFI_REDIS_URL: ${LIQUIFI_REDIS_URL:-redis://redis:6379/2}
+      LIQUIFI_API_URL: ${LIQUIFI_API_URL:-http://host.docker.internal:8001}
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      DATA_GOV_API_KEY: ${DATA_GOV_API_KEY:-}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      TWITTER_COOKIES_PATH: ${TWITTER_COOKIES_PATH:-}
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALERT_CHAT_ID: ${TELEGRAM_ALERT_CHAT_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      tor:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Celery Beat (24/7 scheduler) ─────────────────────────────
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A core.scheduler beat
+      --loglevel=info
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── NLP Worker (Kafka consumer) ──────────────────────────────
   nlp-worker:
     build:
       context: .
       dockerfile: Dockerfile
     command: ["python", "-m", "pipeline.consumer"]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-econscraper}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://redis:6379/0
     depends_on:
@@ -125,67 +215,13 @@ services:
       kafka:
         condition: service_healthy
 
-  # ── Celery Worker (scraper tasks) ─────────────────────────────
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: >
-      celery -A scheduler.celery_app worker
-      --queues=critical,high,default,background,health
-      --concurrency=6
-      --loglevel=info
-      --max-tasks-per-child=200
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
-      REDIS_URL: redis://redis:6379/0
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      TOR_PROXY: socks5://tor:9050
-      DRAGONSCOPE_REDIS_URL: ${DRAGONSCOPE_REDIS_URL:-redis://redis:6379/1}
-      DRAGONSCOPE_API_URL: ${DRAGONSCOPE_API_URL:-http://host.docker.internal:3456}
-      LIQUIFI_REDIS_URL: ${LIQUIFI_REDIS_URL:-redis://redis:6379/2}
-      LIQUIFI_API_URL: ${LIQUIFI_API_URL:-http://host.docker.internal:8001}
-      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
-      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
-      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
-      DISCORD_CHANNELS: ${DISCORD_CHANNELS:-}
-      TWITTER_COOKIES_PATH: ${TWITTER_COOKIES_PATH:-}
-      TWITTER_QUERIES: ${TWITTER_QUERIES:-stock market,crypto,RBI,treasury,forex,defi}
-      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
-      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      tor:
-        condition: service_started
-    restart: unless-stopped
-
-  # ── Celery Beat (scheduler for 24/7 operation) ────────────────
-  beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: >
-      celery -A scheduler.schedule beat
-      --loglevel=info
-    environment:
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # ── Flower (Celery monitoring dashboard) ──────────────────────
+  # ── Flower (Celery monitoring) ───────────────────────────────
   flower:
     build:
       context: .
       dockerfile: Dockerfile
     command: >
-      celery -A scheduler.celery_app flower
+      celery -A core.scheduler flower
       --port=5555
       --broker=redis://redis:6379/0
     ports:
@@ -197,3 +233,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  miniodata:

@@ -1,0 +1,194 @@
+sources:
+  # ── Indian Economy (RBI) ─────────────────────────────────────
+  rbi_dbie:
+    enabled: true
+    schedule: "0 6 * * *"              # 6 AM IST daily
+    collector_class: "collectors.rbi_dbie.RBIDbie"
+    config:
+      base_url: "https://dbie.rbi.org.in"
+      datasets:
+        - weekly_statistical_supplement
+        - forex_reserves
+        - money_supply
+        - sectoral_credit
+        - interest_rates
+        - exchange_rates
+
+  rbi_circulars:
+    enabled: true
+    schedule: "0 */4 * * *"            # Every 4 hours
+    collector_class: "collectors.rbi_circulars.RBICirculars"
+    config:
+      base_url: "https://rbi.org.in"
+      types: [press_releases, notifications, circulars]
+
+  # ── US Economy (FRED) ────────────────────────────────────────
+  fred_api:
+    enabled: true
+    schedule: "0 */6 * * *"            # Every 6 hours
+    collector_class: "collectors.fred_api.FredCollector"
+    config:
+      api_key: "${FRED_API_KEY}"
+      series:
+        - FEDFUNDS          # Fed Funds Rate
+        - CPIAUCSL          # CPI (inflation)
+        - DGS10             # 10-Year Treasury
+        - DGS2              # 2-Year Treasury
+        - DTWEXBGS          # Dollar Index
+        - UNRATE            # Unemployment
+        - GDP               # GDP
+        - SOFR              # Secured Overnight Financing Rate
+        - T10Y2Y            # 10Y-2Y Spread
+        - VIXCLS            # VIX
+        - BAMLH0A0HYM2      # High Yield Spread
+
+  # ── Indian Stock Markets ─────────────────────────────────────
+  nse_bhavcopy:
+    enabled: true
+    schedule: "30 18 * * 1-5"          # 6:30 PM IST weekdays
+    collector_class: "collectors.nse_bhavcopy.NSEBhavcopy"
+    config:
+      types: [equity, derivatives, fii_dii]
+
+  bse_api:
+    enabled: true
+    schedule: "0 19 * * 1-5"           # 7 PM IST weekdays
+    collector_class: "collectors.bse_api.BSECollector"
+    config:
+      types: [corporate_actions, board_meetings, results]
+
+  # ── Money Market Rates ───────────────────────────────────────
+  ccil_rates:
+    enabled: true
+    schedule: "0 17 * * 1-5"           # 5 PM IST weekdays
+    collector_class: "collectors.ccil_rates.CCILCollector"
+    config:
+      data_types:
+        - fbil_reference_rates
+        - sovereign_yield_curve
+        - mibor
+        - treps_rates
+        - cp_rates
+        - cd_rates
+
+  # ── India Government Data ────────────────────────────────────
+  data_gov_in:
+    enabled: true
+    schedule: "0 8 * * *"              # 8 AM IST daily
+    collector_class: "collectors.data_gov_in.DataGovCollector"
+    config:
+      api_key: "${DATA_GOV_API_KEY}"
+      datasets:
+        - cpi_monthly
+        - wpi_monthly
+        - iip_monthly
+        - gdp_quarterly
+        - gst_collections
+
+  # ── SEBI ─────────────────────────────────────────────────────
+  sebi_circulars:
+    enabled: true
+    schedule: "0 */6 * * *"            # Every 6 hours
+    collector_class: "collectors.sebi_circulars.SEBICollector"
+    config:
+      base_url: "https://www.sebi.gov.in"
+      types: [circulars, orders, press_releases]
+
+  # ── International ────────────────────────────────────────────
+  world_bank:
+    enabled: true
+    schedule: "0 0 * * 0"              # Weekly (Sunday midnight)
+    collector_class: "collectors.world_bank.WorldBankCollector"
+    config:
+      indicators:
+        - NY.GDP.MKTP.CD       # GDP
+        - FP.CPI.TOTL.ZG       # Inflation
+        - BN.CAB.XOKA.CD       # Current Account
+      countries: [IN, US, CN, GB, JP, DE]
+
+  imf_data:
+    enabled: true
+    schedule: "0 0 1 * *"              # Monthly (1st day)
+    collector_class: "collectors.imf_data.IMFCollector"
+    config:
+      datasets:
+        - IFS               # International Financial Statistics
+        - DOT               # Direction of Trade
+        - BOP               # Balance of Payments
+
+  # ── News & Social ────────────────────────────────────────────
+  rss_feeds:
+    enabled: true
+    schedule: "*/5 * * * *"            # Every 5 minutes
+    collector_class: "collectors.rss_feeds.RSSCollector"
+    config:
+      feeds:
+        - name: reuters_business
+          url: "https://feeds.reuters.com/reuters/businessNews"
+          category: global_markets
+        - name: reuters_markets
+          url: "https://feeds.reuters.com/reuters/marketsNews"
+          category: global_markets
+        - name: et_economy
+          url: "https://economictimes.indiatimes.com/news/economy/rssfeedstopstories.cms"
+          category: india_economy
+        - name: et_markets
+          url: "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+          category: india_markets
+        - name: mint_economy
+          url: "https://www.livemint.com/rss/economy"
+          category: india_economy
+        - name: mint_markets
+          url: "https://www.livemint.com/rss/markets"
+          category: india_markets
+        - name: moneycontrol
+          url: "https://www.moneycontrol.com/rss/latestnews.xml"
+          category: india_markets
+        - name: rbi_press
+          url: "https://rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx"
+          category: rbi_policy
+        - name: fed_press
+          url: "https://www.federalreserve.gov/feeds/press_all.xml"
+          category: fed_policy
+        - name: ecb_press
+          url: "https://www.ecb.europa.eu/rss/press.html"
+          category: ecb_policy
+        - name: coindesk
+          url: "https://www.coindesk.com/arc/outboundfeeds/rss/"
+          category: crypto
+        - name: cnbc
+          url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"
+          category: global_markets
+        - name: ft_markets
+          url: "https://www.ft.com/markets?format=rss"
+          category: global_markets
+        - name: arxiv_qfin
+          url: "https://rss.arxiv.org/rss/q-fin"
+          category: research
+
+  telegram_channels:
+    enabled: true
+    schedule: "*/10 * * * *"           # Every 10 minutes
+    collector_class: "collectors.telegram_channels.TelegramCollector"
+    config:
+      api_id: "${TELEGRAM_API_ID}"
+      api_hash: "${TELEGRAM_API_HASH}"
+      channels:
+        - BloombergMarketsLive
+        - financialjuice
+        - WallStreetSilverOfficial
+        - raboratory
+
+  twitter_lists:
+    enabled: true
+    schedule: "*/5 * * * *"            # Every 5 minutes
+    collector_class: "collectors.twitter_lists.TwitterListCollector"
+    config:
+      cookies_path: "${TWITTER_COOKIES_PATH}"
+      queries:
+        - "RBI monetary policy"
+        - "SEBI circular"
+        - "Indian stock market"
+        - "MIBOR SOFR rate"
+        - "treasury yield"
+        - "Fed rate decision"

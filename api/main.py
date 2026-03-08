@@ -1,41 +1,51 @@
-"""Social Scraper Platform v3.0 — 15-source intelligence pipeline.
+"""EconScraper v4.0 — Modular Economic Data Collection & AI Analysis Platform.
 
-Feeds data to:
-- DragonScope (financial analytics dashboard)
-- LiquiFi (Indian treasury management)
-
-Runs 24/7 via Celery Beat scheduler with health monitoring.
+Plugin-based collectors, NLP/ML pipeline, RAG-powered API.
+TimescaleDB + pgvector + MinIO storage. 24/7 operation.
 """
+
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 
 from api.database import init_db
+
+# v3.0 legacy routes
 from api.routes.scrape import router as scrape_router
 from api.routes.analysis import router as analysis_router
 from api.routes.search import router as search_router
 from api.routes.pipeline import router as pipeline_router
 from api.routes.financial import router as financial_router
 
+# v4.0 routes
+from api.routes.semantic_search import router as semantic_router
+from api.routes.ask import router as ask_router
+from api.routes.trends import router as trends_router
+from api.routes.data import router as data_router
+from api.routes.digest import router as digest_router
+from api.routes.health_v4 import router as monitoring_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[API] Initializing database tables...")
+    print("[EconScraper] Initializing database tables...")
     init_db()
-    print("[API] Social Scraper Intelligence Platform v3.0 ready")
-    print("[API] Scrapers: 15 sources | Destinations: DragonScope + LiquiFi")
+    print("[EconScraper] v4.0.0 ready — modular economic data platform")
+    print("[EconScraper] 14 collectors | 8 processors | RAG-powered API")
     yield
-    print("[API] Shutting down")
+    print("[EconScraper] Shutting down")
 
 
 app = FastAPI(
-    title="Social Scraper Intelligence Platform",
-    version="3.0.0",
+    title="EconScraper",
+    version="4.0.0",
     description=(
-        "15-source social intelligence pipeline with dark web monitoring. "
-        "Feeds DragonScope (financial analytics) and LiquiFi (treasury management). "
-        "24/7 automated collection via Celery Beat."
+        "Modular economic data collection and AI analysis platform. "
+        "Plugin-based collectors for FRED, RBI, SEBI, NSE, World Bank, IMF, RSS feeds, "
+        "Telegram, Twitter, and more. NLP/ML pipeline with FinBERT sentiment, "
+        "spaCy NER, topic classification, and embedding-based RAG search. "
+        "24/7 automated via Celery Beat."
     ),
     lifespan=lifespan,
 )
@@ -47,43 +57,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Existing routes
+# Legacy v3 routes (backward compatible)
 app.include_router(scrape_router, prefix="/api")
 app.include_router(analysis_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
-
-# New v3.0 routes
 app.include_router(pipeline_router, prefix="/api")
 app.include_router(financial_router, prefix="/api")
+
+# v4.0 routes
+app.include_router(semantic_router, prefix="/api/v4")
+app.include_router(ask_router, prefix="/api/v4")
+app.include_router(trends_router, prefix="/api/v4")
+app.include_router(data_router, prefix="/api/v4")
+app.include_router(digest_router, prefix="/api/v4")
+app.include_router(monitoring_router, prefix="/api/v4")
 
 
 @app.get("/health")
 async def health():
-    """Basic health check with scraper status summary."""
     import os
     try:
-        import redis.asyncio as aioredis
-        r = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
-        await r.ping()
+        import redis as _redis
+        r = _redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
+        r.ping()
         redis_ok = True
-        total_items = int(await r.get("scraper:total_items") or "0")
-        await r.close()
+        r.close()
     except Exception:
         redis_ok = False
-        total_items = 0
 
     return {
         "status": "ok",
-        "service": "social-scraper-platform",
-        "version": "3.0.0",
+        "service": "econscraper",
+        "version": "4.0.0",
         "redis": "connected" if redis_ok else "disconnected",
-        "total_items_scraped": total_items,
-        "scrapers": [
-            "twitter", "telegram", "reddit", "discord", "youtube",
-            "hackernews", "rss", "web", "darkweb", "mastodon",
-            "github", "sec_edgar", "central_bank",
-        ],
-        "destinations": ["dragonscope", "liquifi"],
+        "docs": "/docs",
     }
 
 

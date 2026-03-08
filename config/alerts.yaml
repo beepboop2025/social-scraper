@@ -1,0 +1,29 @@
+alerts:
+  telegram:
+    enabled: true
+    bot_token: "${TELEGRAM_ALERT_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_ALERT_CHAT_ID}"
+
+  rules:
+    collector_failure:
+      consecutive_threshold: 3
+      severity: high
+      message: "Collector '{source}' has failed {failures} times consecutively"
+
+    data_staleness:
+      thresholds:
+        rss_feeds: 15          # minutes
+        rbi_dbie: 1500         # minutes (25 hours)
+        fred_api: 400          # minutes (~6.5 hours)
+        ccil_rates: 1500       # minutes (weekdays only)
+        nse_bhavcopy: 1500     # minutes (weekdays only)
+      severity: medium
+
+    schema_change:
+      severity: high
+      message: "Schema change detected in '{source}': {details}"
+
+    data_quality:
+      null_threshold: 0.2      # >20% nulls in a batch
+      duplicate_threshold: 0.5  # >50% duplicates
+      severity: medium

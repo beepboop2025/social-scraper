@@ -1,0 +1,56 @@
+processing:
+  article_extraction:
+    enabled: true
+    timeout: 15
+    fallback_to_description: true
+
+  deduplication:
+    enabled: true
+    similarity_threshold: 0.85
+    window_hours: 72
+
+  embeddings:
+    enabled: true
+    model: "all-MiniLM-L6-v2"           # sentence-transformers (384 dim)
+    ollama_model: "nomic-embed-text"     # fallback if sentence-transformers unavailable
+    ollama_url: "${OLLAMA_URL:-http://localhost:11434}"
+    batch_size: 32
+    dimension: 384
+
+  sentiment:
+    enabled: true
+    model: "ProsusAI/finbert"            # FinBERT for financial sentiment
+    fallback: "vader"
+    batch_size: 16
+
+  entity_extraction:
+    enabled: true
+    spacy_model: "en_core_web_sm"
+    custom_entities:
+      organizations: [RBI, SEBI, NSE, BSE, CCIL, FIMMDA, FBIL, NPCI, IRDAI]
+      policies: [CRR, SLR, LCR, NSFR, ALM, LAF, MSF, MIBOR, TREPS, CBLO]
+
+  topic_classification:
+    enabled: true
+    topics:
+      - monetary_policy
+      - fiscal_policy
+      - inflation
+      - employment
+      - gdp_growth
+      - trade_balance
+      - banking_sector
+      - capital_markets
+      - cryptocurrency
+      - real_estate
+      - commodities
+      - regulatory
+      - geopolitical
+
+  daily_digest:
+    enabled: true
+    schedule: "0 15 * * *"   # 3 PM UTC = 8:30 PM IST
+    llm_model: "claude-sonnet-4-20250514"
+    ollama_model: "llama3"
+    max_articles: 50
+    send_telegram: true
