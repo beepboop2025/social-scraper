@@ -1,6 +1,7 @@
 version: "3.9"
 
 services:
+  # ── Database ──────────────────────────────────────────────────
   postgres:
     image: postgres:17-alpine
     environment:
@@ -17,6 +18,21 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Cache + Message Broker ────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Kafka (for pipeline messaging) ────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.7.0
     environment:
@@ -45,6 +61,18 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Tor Proxy (for dark web scraping) ─────────────────────────
+  tor:
+    image: dperson/torproxy:latest
+    ports:
+      - "9050:9050"   # SOCKS5 proxy
+      - "8118:8118"   # HTTP proxy (Privoxy)
+    environment:
+      TOR_MaxCircuitDirtiness: 600
+      TOR_NewCircuitPeriod: 120
+    restart: unless-stopped
+
+  # ── FastAPI Backend ───────────────────────────────────────────
   api:
     build:
       context: .
@@ -53,9 +81,27 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
+      REDIS_URL: redis://redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      TOR_PROXY: socks5://tor:9050
+      # Destination connections
+      DRAGONSCOPE_REDIS_URL: ${DRAGONSCOPE_REDIS_URL:-redis://redis:6379/1}
+      DRAGONSCOPE_API_URL: ${DRAGONSCOPE_API_URL:-http://host.docker.internal:3456}
+      LIQUIFI_REDIS_URL: ${LIQUIFI_REDIS_URL:-redis://redis:6379/2}
+      LIQUIFI_API_URL: ${LIQUIFI_API_URL:-http://host.docker.internal:8001}
+      # API Keys
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      TWITTER_COOKIES_PATH: ${TWITTER_COOKIES_PATH:-}
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -63,6 +109,7 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── NLP Worker (Kafka consumer for enrichment) ────────────────
   nlp-worker:
     build:
       context: .
@@ -71,11 +118,82 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
 
+  # ── Celery Worker (scraper tasks) ─────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A scheduler.celery_app worker
+      --queues=critical,high,default,background,health
+      --concurrency=6
+      --loglevel=info
+      --max-tasks-per-child=200
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-social_scraper}
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      TOR_PROXY: socks5://tor:9050
+      DRAGONSCOPE_REDIS_URL: ${DRAGONSCOPE_REDIS_URL:-redis://redis:6379/1}
+      DRAGONSCOPE_API_URL: ${DRAGONSCOPE_API_URL:-http://host.docker.internal:3456}
+      LIQUIFI_REDIS_URL: ${LIQUIFI_REDIS_URL:-redis://redis:6379/2}
+      LIQUIFI_API_URL: ${LIQUIFI_API_URL:-http://host.docker.internal:8001}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_CHANNELS: ${DISCORD_CHANNELS:-}
+      TWITTER_COOKIES_PATH: ${TWITTER_COOKIES_PATH:-}
+      TWITTER_QUERIES: ${TWITTER_QUERIES:-stock market,crypto,RBI,treasury,forex,defi}
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tor:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Celery Beat (scheduler for 24/7 operation) ────────────────
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A scheduler.schedule beat
+      --loglevel=info
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Flower (Celery monitoring dashboard) ──────────────────────
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A scheduler.celery_app flower
+      --port=5555
+      --broker=redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  redisdata:

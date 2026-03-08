@@ -48,4 +48,26 @@ def enrich_item(raw_item: dict) -> dict:
     )
     item["enriched_at"] = datetime.utcnow().isoformat()
 
+    # Financial NLP enrichment
+    try:
+        from analysis.financial_nlp import analyze_financial_content
+        financial = analyze_financial_content(text)
+        item["tickers"] = financial.get("tickers", [])
+        item["price_mentions"] = financial.get("price_mentions", [])
+        item["financial_sentiment"] = financial.get("sentiment", {})
+        item["earnings_related"] = financial.get("earnings_related", False)
+        item["treasury_relevant"] = financial.get("treasury_relevant", False)
+        item["has_financial_content"] = financial.get("has_financial_content", False)
+    except ImportError:
+        pass
+
+    # Threat intel for dark web content
+    if item.get("platform") == "darkweb":
+        try:
+            from analysis.threat_intel import analyze_threat
+            threat = analyze_threat(text)
+            item["threat_analysis"] = threat
+        except ImportError:
+            pass
+
     return item

@@ -13,6 +13,17 @@ class Platform(str, Enum):
     """Supported social media platforms"""
     TWITTER = "twitter"
     TELEGRAM = "telegram"
+    REDDIT = "reddit"
+    DISCORD = "discord"
+    YOUTUBE = "youtube"
+    HACKERNEWS = "hackernews"
+    MASTODON = "mastodon"
+    GITHUB = "github"
+    RSS = "rss"
+    WEB = "web"
+    DARKWEB = "darkweb"
+    SEC_EDGAR = "sec_edgar"
+    CENTRAL_BANK = "central_bank"
 
 
 class ContentType(str, Enum):
@@ -22,6 +33,14 @@ class ContentType(str, Enum):
     REPLY = "reply"
     FORWARD = "forward"
     MEDIA = "media"
+    ARTICLE = "article"
+    FILING = "filing"
+    ANNOUNCEMENT = "announcement"
+    TRANSCRIPT = "transcript"
+    THREAT_INTEL = "threat_intel"
+    ISSUE = "issue"
+    DISCUSSION = "discussion"
+    RELEASE = "release"
 
 
 class MediaType(str, Enum):
@@ -186,12 +205,66 @@ class NewsEvent(BaseModel):
     category: Optional[str] = None
 
 
+class DestinationTag(str, Enum):
+    """Which downstream app should receive this data"""
+    DRAGONSCOPE = "dragonscope"
+    LIQUIFI = "liquifi"
+    BOTH = "both"
+    NONE = "none"
+
+
+class ThreatLevel(str, Enum):
+    """Threat level for dark web intelligence"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class DarkWebContent(BaseModel):
+    """Dark web specific content metadata"""
+    onion_url: Optional[str] = None
+    surface_mirror: Optional[str] = None
+    marketplace: Optional[str] = None
+    threat_level: ThreatLevel = ThreatLevel.LOW
+    threat_categories: List[str] = Field(default_factory=list)
+    financial_relevance: float = 0.0
+    actors: List[str] = Field(default_factory=list)
+    iocs: List[str] = Field(default_factory=list)  # indicators of compromise
+    leak_type: Optional[str] = None
+
+
+class FinancialSignal(BaseModel):
+    """Financial signal extracted from social content"""
+    tickers: List[str] = Field(default_factory=list)
+    sentiment_score: float = 0.0
+    price_mentions: List[Dict[str, Any]] = Field(default_factory=list)
+    earnings_related: bool = False
+    regulatory_related: bool = False
+    macro_related: bool = False
+    treasury_related: bool = False
+    destination: DestinationTag = DestinationTag.NONE
+    signal_strength: float = 0.0  # 0-1
+    asset_classes: List[str] = Field(default_factory=list)
+
+
 class ScrapingConfig(BaseModel):
     """Configuration for scraping operations"""
     # Platform settings
     twitter_enabled: bool = True
     telegram_enabled: bool = True
-    
+    reddit_enabled: bool = True
+    discord_enabled: bool = False
+    youtube_enabled: bool = True
+    hackernews_enabled: bool = True
+    mastodon_enabled: bool = True
+    github_enabled: bool = True
+    rss_enabled: bool = True
+    web_enabled: bool = True
+    darkweb_enabled: bool = False
+    sec_enabled: bool = True
+    centralbank_enabled: bool = True
+
     # Rate limiting
     twitter_delay_seconds: float = 1.0
     telegram_delay_seconds: float = 1.0
