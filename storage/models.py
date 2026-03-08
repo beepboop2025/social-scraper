@@ -37,7 +37,7 @@ class EconomicData(Base):
     date = Column(DateTime(timezone=True), nullable=False)
     value = Column(Numeric, nullable=True)
     unit = Column(String(32), default="")
-    metadata = Column(JSONB, default=dict)
+    extra_data = Column("metadata", JSONB, default=dict)
     collected_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     raw_path = Column(Text, nullable=True)
 

@@ -275,7 +275,7 @@ class BaseCollector(ABC):
                             date=row.get("date", datetime.now(timezone.utc)),
                             value=row.get("value"),
                             unit=row.get("unit", ""),
-                            metadata=row.get("metadata", {}),
+                            extra_data=row.get("metadata", {}),
                             collected_at=datetime.now(timezone.utc),
                             raw_path=raw_path,
                         )
