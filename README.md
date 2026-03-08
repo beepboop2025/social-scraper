@@ -1,367 +1,251 @@
-# Social Media Scraper
+# EconScraper
 
-A comprehensive Python-based scraper for Twitter and Telegram with structured data output, designed for news aggregation and social media monitoring.
+**Economic data collection & AI analysis platform. 14 collectors, 13 scrapers, NLP pipeline, RAG search, and real-time health monitoring — all on a Kafka + TimescaleDB + FastAPI stack.**
 
-## Features
+![Python](https://img.shields.io/badge/Python-3.12-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)
+![Sources](https://img.shields.io/badge/Data_Sources-27-orange.svg)
 
-### Twitter Scraper
-- Search tweets by keywords/queries
-- Get user timelines
-- Stream continuous updates
-- Get trending topics
-- Full engagement metrics (likes, retweets, replies, views)
-- Media extraction (images, videos)
+---
 
-### Telegram Scraper
-- Scrape messages from channels and groups
-- Support for both Bot API and MTProto (User API)
-- Keyword filtering
-- Forward detection
-- View counts for channel posts
-- Media extraction
+## What It Does
 
-### Data Structure
-- **Unified Data Model**: Consistent structure across all platforms
-- **Pydantic Models**: Type-safe, validated data
-- **Multiple Formats**: JSON, CSV, JSONL export
-- **Rich Metadata**: Author info, engagement metrics, hashtags, mentions, media
+Collects economic and financial data from 27 sources (RBI, NSE, SEBI, CCIL, FRED, RSS, Reddit, Twitter, Telegram, SEC EDGAR, dark web, and more), runs NLP analysis (sentiment, NER, topic classification, threat intel), stores everything in TimescaleDB with pgvector embeddings, and serves it through a FastAPI backend with semantic search and RAG-powered Q&A.
 
-## Installation
+Includes intelligent routing to two downstream dashboards — **DragonScope** (market analytics) and **LiquiFi** (Indian treasury management).
 
-```bash
-# Clone or create the project directory
-cd social_scraper
+---
 
-# Install dependencies
-pip install -r requirements.txt
+## Architecture
+
+```
+COLLECTION                          PROCESSING                      SERVING
+─────────────                      ──────────                      ───────
+14 Collectors ─┐                                                   FastAPI v4.0
+  RBI DBIE     │    ┌──────────┐   ┌──────────────┐               ├─ /search/semantic
+  NSE India    ├──► │  Kafka   ├──►│  NLP Worker   │──► PostgreSQL ├─ /ask (RAG)
+  CCIL Rates   │    │ raw-posts│   │  - FinBERT    │    TimescaleDB├─ /trends
+  FRED API     │    └──────────┘   │  - spaCy NER  │    + pgvector ├─ /digest
+  SEBI         │                   │  - Embeddings  │              ├─ /data
+  RSS (16)     │                   │  - Topics      │              └─ /monitoring
+  data.gov.in  │                   │  - Dedup       │
+  BSE          │                   └──────┬─────────┘    ┌──────────────────┐
+  World Bank   │                          │              │ DragonScope      │
+  IMF          │                          ▼              │  (Market View)   │
+13 Scrapers ───┤                   ┌──────────────┐      ├──────────────────┤
+  Reddit       │                   │   Router     │─────►│ LiquiFi          │
+  Twitter      │    ┌──────────┐   │  DS / LF /   │      │  (Treasury Mgmt) │
+  Telegram     ├──► │  MinIO   │   │    Both      │      └──────────────────┘
+  YouTube      │    │ (raw)    │   └──────────────┘
+  Discord      │    └──────────┘
+  SEC EDGAR    │                   ┌──────────────┐
+  Dark Web     │                   │  Health      │
+  GitHub       ┘                   │  Monitor     │──► Telegram Alerts
+                                   │  + AI Report │
+                                   └──────────────┘
 ```
 
-### Requirements
-- Python 3.8+
-- Twitter cookies file (for Twitter scraping)
-- Telegram API credentials (for Telegram scraping)
+---
+
+## Data Sources
+
+### Collectors (Celery Beat — 24/7 automated)
+
+| Source | Data | Schedule |
+|--------|------|----------|
+| **RBI DBIE** | Forex reserves, money supply, sectoral credit, interest rates | Daily 6 AM IST |
+| **RBI Circulars** | Press releases, notifications, policy updates | Every 4h |
+| **NSE Bhavcopy** | Equity prices, derivatives, FII/DII activity | Weekdays 6:30 PM |
+| **BSE API** | Corporate actions, board meetings, results | Weekdays 7 PM |
+| **CCIL Rates** | FBIL reference rates, yield curve, MIBOR, TREPS | Weekdays 5 PM |
+| **SEBI Circulars** | Circulars, orders, press releases | Every 6h |
+| **FRED API** | Fed funds rate, CPI, 10Y/2Y yields, VIX, SOFR, GDP (11 series) | Every 6h |
+| **data.gov.in** | CPI, WPI, IIP, GDP, GST collections | Daily 8 AM |
+| **World Bank** | GDP, inflation, current account (6 countries) | Weekly |
+| **IMF** | IFS, DOT, BOP datasets | Monthly |
+| **RSS Feeds** | Reuters, ET, LiveMint, Moneycontrol, CoinDesk, CNBC, FT, arXiv (16 feeds) | Every 5 min |
+| **Twitter Lists** | RBI policy, SEBI, stock market, MIBOR/SOFR, treasury, Fed | Every 5 min |
+| **Telegram Channels** | BloombergMarketsLive, financialjuice, WallStreetSilverOfficial | Every 10 min |
+
+### Scrapers (on-demand or periodic)
+
+Reddit, Twitter, Telegram, YouTube, Hacker News, Discord, Mastodon, GitHub, RSS, Generic Web, SEC EDGAR, Central Banks, Dark Web (via Tor)
+
+---
+
+## NLP & Analysis
+
+| Module | What It Does |
+|--------|-------------|
+| **Sentiment** | FinBERT financial sentiment + VADER fallback. Hawkish/dovish policy direction. Sector-level scores (banking, markets, forex, real estate, commodities, tech) |
+| **Entities** | spaCy NER + custom Indian financial entities (RBI, SEBI, NSE, BSE, CCIL, FIMMDA, FBIL, NPCI, IRDAI) and policy terms (CRR, SLR, LCR, MIBOR, TREPS, LAF, MSF) |
+| **Topics** | 13-category classification: monetary_policy, fiscal_policy, inflation, employment, gdp_growth, trade_balance, banking_sector, capital_markets, crypto, real_estate, commodities, regulatory, geopolitical |
+| **Financial NLP** | Ticker extraction, price mention detection, earnings sentiment, treasury relevance scoring |
+| **Threat Intel** | 8 categories: data_breach, ransomware, credential_theft, financial_fraud, crypto_threat, insider_threat, supply_chain, sanctions_evasion |
+| **Embeddings** | all-MiniLM-L6-v2 (384-dim) with Ollama fallback. Stored in pgvector for semantic search |
+| **Daily Digest** | LLM-generated briefings via Claude or Ollama |
+
+---
+
+## API Endpoints
+
+### v4.0 (current)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v4/search/semantic` | POST | pgvector cosine similarity search (384-dim) |
+| `/api/v4/ask` | POST | RAG Q&A — retrieve context + LLM answer with citations |
+| `/api/v4/trends` | GET | Topic and sentiment trends over time |
+| `/api/v4/digest` | GET/POST | LLM-generated daily briefings |
+| `/api/v4/data` | GET | Raw economic time-series queries |
+| `/api/v4/monitoring/health` | GET | System health (DB, Redis, all sources, processors) |
+| `/api/v4/monitoring/sources` | GET | Per-source collection stats (last 24h) |
+| `/api/v4/monitoring/alerts` | GET | Recent issues and failures |
+
+### v3.0 (legacy, still available)
+
+`/api/scrape`, `/api/analysis`, `/api/search`, `/api/pipeline`, `/api/financial`
+
+---
+
+## Health Monitoring
+
+Standalone source health checker at `monitoring/health/`. Runs independently — no database required.
+
+```bash
+# Quick reachability check (all 12 sources)
+python -m monitoring.health check --quick
+
+# Full check with structure validation against baselines
+python -m monitoring.health check
+
+# AI-powered analysis report (via Claude Opus 4.6)
+python -m monitoring.health report
+
+# Update structural baselines
+python -m monitoring.health baseline
+
+# Start scheduler daemon (quick check every 6h, deep check daily 7 AM IST)
+python -m monitoring.health schedule
+```
+
+**What it monitors:** HTTP status, page structure fingerprints (table counts, CSS selectors, section headers, download URL patterns), data freshness (weekday-aware), RSS feed validity, API schema changes.
+
+**Alerts:** Telegram notifications for broken sources. Daily AI analysis reports saved to `monitoring/health/reports/`.
+
+---
 
 ## Quick Start
 
-### 1. Configuration
-
-Create a configuration file:
+### Docker (recommended)
 
 ```bash
-python main.py --init-config
+git clone https://github.com/beepboop2025/social-scraper.git
+cd social-scraper
+cp .env.example .env   # Edit with your API keys
+make up                # Starts all 10 services
+# API at http://localhost:8000
+# Flower at http://localhost:5555
 ```
 
-This creates `config.json` with sample settings. Edit it with your credentials.
-
-### 2. Twitter Setup
-
-You need to login to Twitter first to generate cookies:
+### Standalone (no Docker)
 
 ```bash
-python main.py --login twitter
+pip install -r requirements.txt
+python -m monitoring.health check --quick   # Verify sources are reachable
+python scripts/init_db.py                   # Initialize database
+uvicorn api.main:app --port 8000            # Start API
 ```
 
-Or manually create a cookies file by logging into Twitter in your browser and exporting cookies.
+---
 
-### 3. Telegram Setup
+## Infrastructure
 
-Get your API credentials from https://my.telegram.org:
-- `api_id`
-- `api_hash`
+| Service | Image | Port |
+|---------|-------|------|
+| **API** | Python 3.12 | 8000 |
+| **PostgreSQL** | timescale/timescaledb-ha:pg17 | 5432 |
+| **Redis** | redis:7-alpine | 6379 |
+| **Kafka** | confluentinc/cp-kafka:7.7.0 | 9092 |
+| **MinIO** | minio/minio | 9000 |
+| **Tor Proxy** | dperson/torproxy | 9050 |
+| **Celery Worker** | Python 3.12 | — |
+| **Celery Beat** | Python 3.12 | — |
+| **NLP Worker** | Python 3.12 | — |
+| **Flower** | Python 3.12 | 5555 |
 
-Set them in your config file or environment variables.
+---
 
-### 4. Run Scraping
+## Make Commands
 
 ```bash
-# Scrape Twitter
-python main.py --scrape twitter --query "breaking news"
-
-# Scrape Telegram channels
-python main.py --scrape telegram --channel @bbcnews
-
-# Scrape both (configured sources)
-python main.py --scrape news
-
-# Stream continuously
-python main.py --scrape news --stream
+make up          # Start all services
+make down        # Stop services
+make logs        # Tail all logs
+make health      # System health check
+make stats       # Collection statistics
+make alerts      # Recent alerts
+make test        # Run tests
+make init        # Initialize database
+make migrate     # Run Alembic migrations
+make backfill    # Historical data (30 days)
+make backup      # Backup to ./backups/
 ```
 
-## Data Structure
-
-### ScrapedContent Model
-
-```python
-{
-    "id": "unique_id",
-    "platform": "twitter|telegram",
-    "content_type": "post|comment|reply|forward",
-    "text": "Post content",
-    "raw_text": "Original unprocessed text",
-    "language": "en",
-    
-    "author": {
-        "id": "author_id",
-        "username": "@username",
-        "display_name": "Display Name",
-        "verified": true,
-        "follower_count": 1000,
-        ...
-    },
-    
-    "media": [
-        {
-            "type": "image|video|gif|audio|document",
-            "url": "media_url",
-            "filename": "file.jpg",
-            ...
-        }
-    ],
-    
-    "engagement": {
-        "likes": 100,
-        "replies": 20,
-        "reposts": 50,
-        "views": 1000
-    },
-    
-    "hashtags": ["#news", "#breaking"],
-    "mentions": ["@user1", "@user2"],
-    "urls": ["https://example.com"],
-    
-    "created_at": "2024-01-01T12:00:00",
-    "scraped_at": "2024-01-01T12:05:00",
-    
-    "is_reply": false,
-    "is_thread": false,
-    "source_url": "https://twitter.com/...",
-    "search_query": "breaking news"
-}
-```
-
-## Usage Examples
-
-### Example 1: Simple Twitter Search
-
-```python
-import asyncio
-from main import quick_scrape_twitter
-
-async def main():
-    items = await quick_scrape_twitter(
-        queries=["AI news", "technology"],
-        cookies_path="cookies.json",
-        count=20
-    )
-    
-    for item in items:
-        print(f"@{item.unified.author.username}: {item.unified.text[:50]}...")
-
-asyncio.run(main())
-```
-
-### Example 2: Telegram Channel Scraping
-
-```python
-import asyncio
-from main import quick_scrape_telegram
-
-async def main():
-    items = await quick_scrape_telegram(
-        channels=["@bbcnews", "@cnn"],
-        api_id=12345678,
-        api_hash="your_api_hash",
-        limit=50
-    )
-    
-    for item in items:
-        print(f"[{item.unified.source_channel}] {item.unified.text[:50]}...")
-
-asyncio.run(main())
-```
-
-### Example 3: Full Control with Config
-
-```python
-import asyncio
-from main import SocialMediaScraper
-from config import Config
-
-async def main():
-    # Create config
-    config = Config()
-    config.twitter.enabled = True
-    config.twitter.cookies_path = "cookies.json"
-    config.telegram.enabled = True
-    config.telegram.api_id = 12345678
-    config.telegram.api_hash = "your_api_hash"
-    
-    # Configure news sources
-    config.news_sources.twitter_search_queries = ["breaking", "news"]
-    config.news_sources.telegram_channels = ["@bbcnews"]
-    
-    # Create and run scraper
-    scraper = SocialMediaScraper(config)
-    await scraper.initialize()
-    
-    try:
-        results = await scraper.scrape_news()
-        
-        for result in results:
-            print(f"Platform: {result.platform}")
-            print(f"Items: {result.items_scraped}")
-    finally:
-        await scraper.close()
-
-asyncio.run(main())
-```
-
-### Example 4: News Aggregation
-
-```python
-from storage import NewsAggregator, StorageManager
-
-storage = StorageManager()
-aggregator = NewsAggregator(storage)
-
-# Group by keywords
-groups = aggregator.aggregate_by_keywords(
-    items,
-    keywords=["breaking", "urgent", "update"]
-)
-
-# Detect trending
-trending = aggregator.detect_trending_topics(items, top_n=10)
-
-# Export report
-report_path = aggregator.export_news_report(
-    items,
-    report_name="daily_news"
-)
-```
-
-## Environment Variables
-
-You can also configure via environment variables:
-
-```bash
-# Twitter
-export TWITTER_ENABLED=true
-export TWITTER_COOKIES_PATH=cookies.json
-
-# Telegram
-export TELEGRAM_ENABLED=true
-export TELEGRAM_API_ID=12345678
-export TELEGRAM_API_HASH=your_api_hash
-
-# Settings
-export OUTPUT_DIRECTORY=./data
-export OUTPUT_FORMAT=both
-```
-
-## Command Line Options
-
-```
-usage: main.py [-h] [--config CONFIG] [--init-config] 
-               [--login {twitter,telegram}]
-               [--scrape {twitter,telegram,news,all}]
-               [--query QUERY] [--channel CHANNEL]
-               [--count COUNT] [--stream]
-               [--output OUTPUT] [--format {json,csv,both}]
-
-Options:
-  -h, --help            Show help message
-  -c, --config          Config file path
-  --init-config         Create sample config
-  --login               Interactive login
-  --scrape              What to scrape
-  -q, --query           Search query
-  -ch, --channel        Telegram channel
-  -n, --count           Number of items (default: 20)
-  --stream              Continuous streaming mode
-  -o, --output          Output directory
-  -f, --format          Output format
-```
-
-## Output Files
-
-The scraper creates several files in your output directory:
-
-- `scraped_<batch_id>_<timestamp>.json` - Full JSON data
-- `scraped_<batch_id>_<timestamp>.csv` - CSV export
-- `metadata_<platform>_<batch_id>_<timestamp>.json` - Metadata about the scrape
-- `news_report_<batch_id>.json` - Aggregated news report
+---
 
 ## Project Structure
 
 ```
-social_scraper/
-├── main.py                 # Entry point
-├── config.py              # Configuration management
-├── models.py              # Data models
-├── twitter_scraper.py     # Twitter scraping module
-├── telegram_scraper.py    # Telegram scraping module
-├── storage.py             # Data storage and export
-├── examples.py            # Usage examples
-├── requirements.txt       # Dependencies
-├── .env.example          # Example environment file
-└── README.md             # This file
+├── collectors/          # 14 data source collectors (RBI, NSE, FRED, etc.)
+├── scrapers/            # 13 web/social scrapers (Reddit, Twitter, etc.)
+├── analysis/            # NLP modules (sentiment, NER, topics, threat intel)
+├── processors/          # Pipeline processors (embeddings, dedup, digest)
+├── api/routes/          # FastAPI endpoints (v3 + v4)
+├── pipeline/            # Kafka producer/consumer
+├── connectors/          # DragonScope + LiquiFi integrations + router
+├── monitoring/          # Data quality, Telegram alerts
+│   └── health/          # Source health checker + AI analysis
+├── core/                # Base classes, registry, scheduler
+├── storage/             # Models, raw store, vectors, TimescaleDB
+├── scheduler/           # Celery Beat configuration
+├── config/              # sources.yaml, alerts.yaml, processing.yaml
+├── scripts/             # init_db, backfill, reprocess
+├── tests/               # pytest suite
+├── docker-compose.yml   # 10-service stack
+└── Makefile             # Common operations
 ```
 
-## Rate Limiting
+---
 
-The scraper includes built-in rate limiting to avoid getting blocked:
+## Configuration
 
-- Twitter: 1 second delay between requests
-- Telegram: 1 second delay between channel requests
+| File | Purpose |
+|------|---------|
+| `config/sources.yaml` | All 14 collectors: enabled/disabled, schedules, API keys, series IDs |
+| `config/alerts.yaml` | Telegram alerts, staleness thresholds, quality rules, health checker schedule |
+| `config/processing.yaml` | Embedding model, sentiment model, topic categories, digest settings |
+| `.env` | API keys (FRED, Telegram, Twitter), database URLs, Redis URL |
 
-Adjust in configuration:
-```python
-config.settings.rate_limit_delay = 2.0  # 2 seconds
-```
+---
 
-## Advanced Usage
+## Tech Stack
 
-See `examples.py` for more advanced usage:
+| Layer | Technology |
+|-------|-----------|
+| **API** | FastAPI, Uvicorn, Pydantic 2 |
+| **Database** | TimescaleDB (PostgreSQL 17), pgvector, Alembic |
+| **Queue** | Kafka (Confluent), Celery + Redis |
+| **NLP** | FinBERT (transformers), spaCy, sentence-transformers, VADER |
+| **LLM** | Anthropic Claude API, Ollama (fallback) |
+| **Scraping** | httpx, BeautifulSoup, trafilatura, twikit, telethon |
+| **Storage** | MinIO (S3-compatible raw store), Redis (cache + pub/sub) |
+| **Monitoring** | Flower, Telegram Bot, source health checker |
+| **Containers** | Docker Compose (10 services) |
 
-1. Twitter Search
-2. Telegram Channels
-3. Combined News Scraping
-4. Streaming Updates
-5. Custom Processing
-6. News Aggregation
-7. User Timelines
-8. Export and Load
-
-Run examples:
-```bash
-python examples.py 1  # Run example 1
-```
-
-## Troubleshooting
-
-### Twitter Login Issues
-- Make sure cookies file exists and is valid
-- Try logging in again: `python main.py --login twitter`
-- Check if account has 2FA enabled
-
-### Telegram API Issues
-- Verify api_id and api_hash are correct
-- Make sure phone number is in international format (+1234567890)
-- Check if you received the login code
-
-### Rate Limiting
-- Increase delay in config: `rate_limit_delay = 2.0`
-- Reduce batch size
-- Use multiple sessions/accounts
+---
 
 ## License
 
-MIT License - Feel free to use and modify as needed.
-
-## Contributing
-
-Contributions welcome! Please ensure:
-- Code follows existing style
-- Add tests for new features
-- Update documentation
+MIT
