@@ -197,20 +197,26 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── NLP Worker (Kafka consumer) ──────────────────────────────
+  # ── NLP Worker (dedicated processor queue) ──────────────────
   nlp-worker:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["python", "-m", "pipeline.consumer"]
+    command: >
+      celery -A core.scheduler worker
+      --queues=processors
+      --concurrency=2
+      --loglevel=info
+      --max-tasks-per-child=50
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-scraper}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-econscraper}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redis:
         condition: service_healthy
 
   # ── Flower (Celery monitoring) ───────────────────────────────

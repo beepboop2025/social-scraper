@@ -9,6 +9,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from api.database import Base
+# v4 models (canonical)
+from storage.models import (  # noqa: F401
+    EconomicData, Article, ArticleEmbedding, SentimentScore,
+    Entity, ArticleTopic, DailyDigest, CollectionLog,
+)
+# v3 models (kept for migration history)
 from api.models import ScrapedPost, ScrapedProfile, AnalysisResult, ScrapeJob  # noqa: F401
 
 config = context.config

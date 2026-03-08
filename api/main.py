@@ -11,13 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.database import init_db
 
-# v3.0 legacy routes
-from api.routes.scrape import router as scrape_router
-from api.routes.analysis import router as analysis_router
-from api.routes.search import router as search_router
-from api.routes.pipeline import router as pipeline_router
-from api.routes.financial import router as financial_router
-
 # v4.0 routes
 from api.routes.semantic_search import router as semantic_router
 from api.routes.ask import router as ask_router
@@ -68,13 +61,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Legacy v3 routes (backward compatible)
-app.include_router(scrape_router, prefix="/api")
-app.include_router(analysis_router, prefix="/api")
-app.include_router(search_router, prefix="/api")
-app.include_router(pipeline_router, prefix="/api")
-app.include_router(financial_router, prefix="/api")
-
 # v4.0 routes
 app.include_router(semantic_router, prefix="/api/v4")
 app.include_router(ask_router, prefix="/api/v4")
@@ -102,7 +88,7 @@ async def health():
     return {
         "status": "ok",
         "service": "econscraper",
-        "version": "4.0.0",
+        "version": "4.1.0",
         "redis": "connected" if redis_ok else "disconnected",
         "docs": "/docs",
     }

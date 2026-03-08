@@ -108,6 +108,77 @@ def build_beat_schedule() -> dict:
         "options": {"queue": "routing"},
     }
 
+    # Push stats to DragonScope — every 10 minutes
+    schedule["push-stats"] = {
+        "task": "core.tasks.push_stats",
+        "schedule": crontab(minute="*/10"),
+        "options": {"queue": "health"},
+    }
+
+    # ── Social scraper schedules ─────────────────────────
+    # These run alongside the YAML-driven collectors above.
+
+    schedule["scrape-reddit"] = {
+        "task": "core.tasks.scrape_reddit",
+        "schedule": crontab(minute="*/5"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-twitter"] = {
+        "task": "core.tasks.scrape_twitter",
+        "schedule": crontab(minute="*/5"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-hackernews"] = {
+        "task": "core.tasks.scrape_hackernews",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-rss-financial"] = {
+        "task": "core.tasks.scrape_rss_financial",
+        "schedule": crontab(minute="*/2"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-central-banks"] = {
+        "task": "core.tasks.scrape_central_banks",
+        "schedule": crontab(minute="*/2"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-youtube"] = {
+        "task": "core.tasks.scrape_youtube",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-mastodon"] = {
+        "task": "core.tasks.scrape_mastodon",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-sec"] = {
+        "task": "core.tasks.scrape_sec",
+        "schedule": crontab(minute="*/30"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-github"] = {
+        "task": "core.tasks.scrape_github",
+        "schedule": crontab(minute="*/30"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-discord"] = {
+        "task": "core.tasks.scrape_discord",
+        "schedule": crontab(minute="*/30"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-web"] = {
+        "task": "core.tasks.scrape_web",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "collectors"},
+    }
+    schedule["scrape-darkweb"] = {
+        "task": "core.tasks.scrape_darkweb",
+        "schedule": crontab(hour="*/1", minute=0),
+        "options": {"queue": "collectors"},
+    }
+
     return schedule
 
 
@@ -115,11 +186,29 @@ def build_beat_schedule() -> dict:
 app.conf.beat_schedule = build_beat_schedule()
 
 app.conf.task_routes = {
+    # Collectors (YAML-driven + social scrapers)
     "core.tasks.run_collector": {"queue": "collectors"},
+    "core.tasks.scrape_reddit": {"queue": "collectors"},
+    "core.tasks.scrape_twitter": {"queue": "collectors"},
+    "core.tasks.scrape_hackernews": {"queue": "collectors"},
+    "core.tasks.scrape_rss_financial": {"queue": "collectors"},
+    "core.tasks.scrape_central_banks": {"queue": "collectors"},
+    "core.tasks.scrape_youtube": {"queue": "collectors"},
+    "core.tasks.scrape_mastodon": {"queue": "collectors"},
+    "core.tasks.scrape_sec": {"queue": "collectors"},
+    "core.tasks.scrape_github": {"queue": "collectors"},
+    "core.tasks.scrape_discord": {"queue": "collectors"},
+    "core.tasks.scrape_web": {"queue": "collectors"},
+    "core.tasks.scrape_darkweb": {"queue": "collectors"},
+    # Processors
     "core.tasks.process_pipeline": {"queue": "processors"},
     "core.tasks.generate_digest": {"queue": "processors"},
-    "core.tasks.health_check_all": {"queue": "health"},
+    # Routing
     "core.tasks.route_to_destinations": {"queue": "routing"},
+    # Health
+    "core.tasks.health_check_all": {"queue": "health"},
+    "core.tasks.check_data_quality": {"queue": "health"},
+    "core.tasks.push_stats": {"queue": "health"},
 }
 
 app.autodiscover_tasks(["core"])
