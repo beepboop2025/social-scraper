@@ -1,11 +1,14 @@
 """NSE daily bhavcopy + FII/DII flows collector."""
 
-import io, logging
+import logging
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 from core.base_collector import BaseCollector
 
 logger = logging.getLogger(__name__)
+
+# IST offset from UTC (+5:30)
+_IST_OFFSET = timedelta(hours=5, minutes=30)
 
 
 class NSEBhavcopy(BaseCollector):
@@ -18,8 +21,8 @@ class NSEBhavcopy(BaseCollector):
         super().__init__(config)
         self.types = config.get("types", ["equity", "fii_dii"])
         self._http.headers.update({
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "text/html,application/xhtml+xml",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/json",
             "Referer": "https://www.nseindia.com/",
         })
 
@@ -42,7 +45,7 @@ class NSEBhavcopy(BaseCollector):
                     data = resp.json()
                     for item in data if isinstance(data, list) else [data]:
                         records.append({
-                            "indicator": f"nse_fii_dii",
+                            "indicator": "nse_fii_dii",
                             "data": item,
                             "type": "fii_dii",
                         })
@@ -51,16 +54,29 @@ class NSEBhavcopy(BaseCollector):
 
         if "equity" in self.types:
             try:
-                today = datetime.now(timezone.utc) - timedelta(hours=5, minutes=30)
-                date_str = today.strftime("%d%m%Y")
                 resp = await self._http.get(
-                    f"{self.NSE_URL}/api/historical/cm/equity?symbol=NIFTY 50",
+                    f"{self.NSE_URL}/api/historical/cm/equity",
+                    params={"symbol": "NIFTY 50"},
                 )
                 if resp.status_code == 200:
                     data = resp.json()
                     records.append({"indicator": "nse_equity_snapshot", "data": data, "type": "equity"})
             except Exception as e:
                 logger.warning(f"[NSE] Equity snapshot failed: {e}")
+
+        if "derivatives" in self.types:
+            try:
+                ist_now = datetime.now(timezone.utc) + _IST_OFFSET
+                date_str = ist_now.strftime("%d-%m-%Y")
+                resp = await self._http.get(
+                    f"{self.NSE_URL}/api/reports",
+                    params={"archives": f"[{{\"name\":\"F&O - Loss Data\",\"type\":\"archives\",\"reportType\":\"derivatives\",\"dt\":\"{date_str}\"}}]"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    records.append({"indicator": "nse_derivatives_snapshot", "data": data, "type": "derivatives"})
+            except Exception as e:
+                logger.warning(f"[NSE] Derivatives snapshot failed: {e}")
 
         logger.info(f"[NSE] Collected {len(records)} datasets")
         return records
@@ -94,4 +110,6 @@ class NSEBhavcopy(BaseCollector):
         return pd.DataFrame(rows)
 
     def validate(self, df: pd.DataFrame) -> bool:
-        return True
+        if df.empty:
+            return True
+        return "indicator" in df.columns and "value" in df.columns

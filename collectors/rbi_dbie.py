@@ -5,6 +5,7 @@ interest rates, exchange rates from RBI's data portal.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -82,7 +83,6 @@ class RBIDbie(BaseCollector):
                         if len(cols) >= 2:
                             name = cols[0].get_text(strip=True).lower()
                             val_text = cols[-1].get_text(strip=True)
-                            import re
                             match = re.search(r"(\d+\.?\d*)", val_text)
                             if match and any(kw in name for kw in ["repo", "bank rate", "msf", "reverse", "crr", "slr"]):
                                 records.append({
@@ -110,7 +110,6 @@ class RBIDbie(BaseCollector):
                         if len(cols) >= 2:
                             currency = cols[0].get_text(strip=True)
                             rate_text = cols[1].get_text(strip=True)
-                            import re
                             match = re.search(r"(\d+\.?\d*)", rate_text)
                             if match:
                                 records.append({
@@ -139,7 +138,6 @@ class RBIDbie(BaseCollector):
                     for row in table.find_all("tr"):
                         cols = row.find_all("td")
                         if len(cols) >= 2:
-                            import re
                             name = cols[0].get_text(strip=True)
                             val = cols[-1].get_text(strip=True)
                             match = re.search(r"[\d,]+\.?\d*", val)
