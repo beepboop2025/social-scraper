@@ -90,7 +90,11 @@ class RedditScraper(BaseScraper):
                 url = url.rstrip("/") + ".json"
             resp = await self._http.get(url)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except Exception:
+            logger.error(f"[Reddit] Failed to parse JSON from {url} (status={resp.status_code})")
+            return {}
 
     def _parse_post(self, post_data: dict, subreddit: str = "") -> ScrapedItem:
         data = post_data.get("data", post_data)
@@ -187,7 +191,7 @@ class RedditScraper(BaseScraper):
 
     async def scrape_comments(self, post_url: str, limit: int = 50) -> list[ScrapedItem]:
         """Scrape comments on a specific post."""
-        url = post_url.rstrip("/") + ".json?limit={limit}"
+        url = post_url.rstrip("/") + f".json?limit={limit}"
         data = await self._fetch_json(url)
         items = []
         if len(data) > 1:
@@ -206,3 +210,7 @@ class RedditScraper(BaseScraper):
             await asyncio.sleep(1.0)  # Be nice to Reddit
         logger.info(f"[Reddit] Scraped {len(all_items)} posts from {len(self.SUBREDDITS)} subreddits")
         return all_items
+
+    async def close(self):
+        """Clean up HTTP client."""
+        await self._http.aclose()

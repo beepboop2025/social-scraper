@@ -37,15 +37,19 @@ class HackerNewsScraper(BaseScraper):
 
     BASE_URL = "https://hacker-news.firebaseio.com/v0"
 
+    MAX_CONCURRENT = 20  # Limit parallel requests to HN API
+
     def __init__(self, **kwargs):
         super().__init__(rate_limit=60, **kwargs)
         self._http = httpx.AsyncClient(timeout=20)
+        self._sem = asyncio.Semaphore(self.MAX_CONCURRENT)
 
     async def _get_item(self, item_id: int) -> Optional[dict]:
-        resp = await self._http.get(f"{self.BASE_URL}/item/{item_id}.json")
-        if resp.status_code == 200:
-            return resp.json()
-        return None
+        async with self._sem:
+            resp = await self._http.get(f"{self.BASE_URL}/item/{item_id}.json")
+            if resp.status_code == 200:
+                return resp.json()
+            return None
 
     async def _get_stories(self, category: str = "topstories", limit: int = 100) -> list[int]:
         resp = await self._http.get(f"{self.BASE_URL}/{category}.json")
@@ -121,6 +125,9 @@ class HackerNewsScraper(BaseScraper):
 
         items = []
         for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"[HN] Failed to fetch story: {r}")
+                continue
             if isinstance(r, dict) and r.get("type") == "story":
                 items.append(self._parse_story(r))
             if len(items) >= limit:
@@ -141,6 +148,9 @@ class HackerNewsScraper(BaseScraper):
 
         items = []
         for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"[HN] Failed to fetch story: {r}")
+                continue
             if isinstance(r, dict) and r.get("type") == "story" and self._is_financial(r):
                 items.append(self._parse_story(r))
             if len(items) >= limit:
@@ -161,9 +171,16 @@ class HackerNewsScraper(BaseScraper):
 
         items = []
         for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"[HN] Failed to fetch comment: {r}")
+                continue
             if isinstance(r, dict):
                 item = self._parse_comment(r)
                 if item:
                     items.append(item)
 
         return items
+
+    async def close(self):
+        """Clean up HTTP client."""
+        await self._http.aclose()

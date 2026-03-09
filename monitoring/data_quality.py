@@ -11,13 +11,19 @@ class DataQualityChecker:
 
     def __init__(self):
         self.staleness_hours = {
+            # Structured collectors
             "fred_api": 24,
             "rbi_dbie": 48,
             "rbi_circulars": 12,
             "nse_bhavcopy": 24,
+            "bse_api": 24,
             "ccil_rates": 12,
-            "rss_feeds": 6,
+            "data_gov_in": 48,
             "sebi_circulars": 24,
+            "world_bank": 168,  # Weekly
+            "imf_data": 744,   # Monthly
+            # Social/news collectors
+            "rss_feeds": 6,
             "twitter_lists": 6,
             "telegram_channels": 6,
         }
