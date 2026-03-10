@@ -85,21 +85,25 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
     """Generic: create scraper → call method → route results → store locally."""
     router = _make_router()
     scraper = scraper_factory()
-    method = getattr(scraper, method_name)
-    items = await method(**kwargs)
+    try:
+        method = getattr(scraper, method_name)
+        items = await method(**kwargs)
 
-    result = {
-        "scraper": getattr(scraper, "name", "unknown"),
-        "items_scraped": len(items) if items else 0,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+        result = {
+            "scraper": getattr(scraper, "name", "unknown"),
+            "items_scraped": len(items) if items else 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
-    if items:
-        routing = await router.route(items)
-        result["routing"] = routing
-        await _store_scraped_items(items)
+        if items:
+            routing = await router.route(items)
+            result["routing"] = routing
+            await _store_scraped_items(items)
 
-    return result
+        return result
+    finally:
+        if hasattr(scraper, "close"):
+            await scraper.close()
 
 
 async def _store_scraped_items(items):

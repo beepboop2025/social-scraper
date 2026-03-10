@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -63,17 +64,20 @@ class RedditScraper(BaseScraper):
         import time
         if self._token and time.time() < self._token_expiry:
             return self._token
-        resp = await self._http.post(
-            "https://www.reddit.com/api/v1/access_token",
-            auth=(self.client_id, self.client_secret),
-            data={"grant_type": "client_credentials"},
-            headers={"User-Agent": self.user_agent},
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            self._token = data["access_token"]
-            self._token_expiry = time.time() + data.get("expires_in", 3600) - 60
-            return self._token
+        try:
+            resp = await self._http.post(
+                "https://www.reddit.com/api/v1/access_token",
+                auth=(self.client_id, self.client_secret),
+                data={"grant_type": "client_credentials"},
+                headers={"User-Agent": self.user_agent},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                self._token = data["access_token"]
+                self._token_expiry = time.time() + data.get("expires_in", 3600) - 60
+                return self._token
+        except Exception as e:
+            logger.warning(f"[Reddit] OAuth token request failed: {e}")
         return None
 
     async def _fetch_json(self, url: str) -> dict:
@@ -172,7 +176,7 @@ class RedditScraper(BaseScraper):
 
     async def scrape(self, query: str, limit: int = 100) -> list[ScrapedItem]:
         """Search Reddit for posts matching query."""
-        url = f"https://www.reddit.com/search.json?q={query}&sort=new&limit={min(limit, 100)}"
+        url = f"https://www.reddit.com/search.json?q={quote(query)}&sort=new&limit={min(limit, 100)}"
         data = await self._fetch_json(url)
         items = []
         for child in data.get("data", {}).get("children", []):
