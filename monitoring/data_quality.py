@@ -26,6 +26,17 @@ class DataQualityChecker:
             "rss_feeds": 6,
             "twitter_lists": 6,
             "telegram_channels": 6,
+            # Social scrapers
+            "reddit": 2,
+            "hackernews": 2,
+            "youtube": 2,
+            "mastodon": 2,
+            "github": 4,
+            "sec": 4,
+            "discord": 4,
+            "darkweb": 8,
+            "web": 2,
+            "central_bank": 2,
         }
 
     def run_all_checks(self) -> list[dict]:

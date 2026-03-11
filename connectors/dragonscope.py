@@ -236,3 +236,10 @@ class DragonScopeConnector:
             results[category] = {"success": success, "count": len(cat_items)}
 
         return results
+
+    async def close(self):
+        """Close HTTP and Redis connections."""
+        await self._http.aclose()
+        if self._redis:
+            await self._redis.close()
+            self._redis = None

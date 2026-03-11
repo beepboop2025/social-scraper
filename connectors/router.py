@@ -131,25 +131,28 @@ class DataRouter:
 
         # Push to destinations in parallel
         results = {}
-        tasks = []
+        coros = {}
 
         if dragonscope_items:
-            tasks.append(("dragonscope", self.dragonscope.push(dragonscope_items)))
+            coros["dragonscope"] = self.dragonscope.push(dragonscope_items)
         if liquifi_items:
-            tasks.append(("liquifi", self.liquifi.push(liquifi_items)))
+            coros["liquifi"] = self.liquifi.push(liquifi_items)
 
-        for name, coro in tasks:
-            try:
-                result = await coro
-                results[name] = result
-                if name == "dragonscope":
-                    self._stats["dragonscope_pushed"] += len(dragonscope_items)
-                elif name == "liquifi":
-                    self._stats["liquifi_pushed"] += liquifi_items.__len__()
-            except Exception as e:
-                logger.error(f"[Router] {name} push failed: {e}")
-                results[name] = {"error": str(e)}
-                self._stats["errors"] += 1
+        if coros:
+            gathered = await asyncio.gather(
+                *coros.values(), return_exceptions=True
+            )
+            for name, result in zip(coros.keys(), gathered):
+                if isinstance(result, Exception):
+                    logger.error(f"[Router] {name} push failed: {result}")
+                    results[name] = {"error": str(result)}
+                    self._stats["errors"] += 1
+                else:
+                    results[name] = result
+                    if name == "dragonscope":
+                        self._stats["dragonscope_pushed"] += len(dragonscope_items)
+                    elif name == "liquifi":
+                        self._stats["liquifi_pushed"] += len(liquifi_items)
 
         # Publish all to Kafka for persistence
         await self._publish_to_kafka(items, "all")

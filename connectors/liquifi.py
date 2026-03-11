@@ -15,6 +15,7 @@ it to LiquiFi's WebSocket /ws/rates stream or REST API.
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -163,7 +164,6 @@ class LiquiFiConnector:
                 }
 
                 # Detect specific rate mentions
-                import re
                 rate_patterns = [
                     (r"repo\s*rate.*?(\d+\.?\d*)\s*%", "repo_rate"),
                     (r"mibor.*?(\d+\.?\d*)\s*%", "mibor"),
@@ -272,3 +272,10 @@ class LiquiFiConnector:
             "filtered_out": len(items) - len(relevant_items),
             "success": success,
         }
+
+    async def close(self):
+        """Close HTTP and Redis connections."""
+        await self._http.aclose()
+        if self._redis:
+            await self._redis.close()
+            self._redis = None
