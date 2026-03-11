@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models for social scraper platform."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, Boolean,
     ForeignKey, JSON, Index, Enum as SAEnum,
@@ -53,7 +53,7 @@ class ScrapedPost(Base):
 
     # Timestamps
     created_at = Column(DateTime, nullable=False)
-    scraped_at = Column(DateTime, default=datetime.utcnow)
+    scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Full-text search support
     __table_args__ = (
@@ -82,7 +82,7 @@ class ScrapedProfile(Base):
     profile_url = Column(String(512))
     avatar_url = Column(String(512))
     raw_metadata = Column(JSON, default=dict)
-    scraped_at = Column(DateTime, default=datetime.utcnow)
+    scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_profiles_platform_user", "platform", "platform_user_id", unique=True),
@@ -98,7 +98,7 @@ class AnalysisResult(Base):
     result = Column(JSON, nullable=False)
     confidence = Column(Float)
     model_version = Column(String(64))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     post = relationship("ScrapedPost", back_populates="analysis")
 
@@ -121,7 +121,7 @@ class ScrapeJob(Base):
     error_message = Column(Text)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_jobs_status", "status"),

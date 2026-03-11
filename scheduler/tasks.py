@@ -13,15 +13,7 @@ logger = logging.getLogger(__name__)
 
 def _run_async(coro):
     """Run an async coroutine in a sync Celery task."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, coro).result()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+    return asyncio.run(coro)
 
 
 async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
@@ -355,7 +347,6 @@ def scrape_github_trending(self):
 def scrape_discord(self):
     """Scrape monitored Discord channels."""
     try:
-        from scrapers.discord_scraper import DiscordScraper
         bot_token = os.getenv("DISCORD_BOT_TOKEN")
         if not bot_token:
             return {"scraper": "discord", "items_scraped": 0, "note": "No bot token configured"}
@@ -365,21 +356,29 @@ def scrape_discord(self):
         if not channels:
             return {"scraper": "discord", "items_scraped": 0, "note": "No channels configured"}
 
-        scraper = DiscordScraper(bot_token=bot_token)
-        all_items = []
-        for ch in channels:
-            items = await scraper.safe_scrape_channel(ch, 50)
-            all_items.extend(items)
-
-        if all_items:
-            from connectors.router import DataRouter
-            router = DataRouter()
-            results = await router.route(all_items)
-            return {"scraper": "discord", "items_scraped": len(all_items), "routing": results}
-        return {"scraper": "discord", "items_scraped": 0}
+        result = _run_async(_scrape_discord_impl(bot_token, channels))
+        return result
     except Exception as e:
         logger.error(f"[Discord] Task failed: {e}")
         self.retry(exc=e)
+
+
+async def _scrape_discord_impl(bot_token: str, channels: list[str]):
+    """Async implementation for Discord scraping."""
+    from scrapers.discord_scraper import DiscordScraper
+    from connectors.router import DataRouter
+
+    scraper = DiscordScraper(bot_token=bot_token)
+    all_items = []
+    for ch in channels:
+        items = await scraper.safe_scrape_channel(ch, 50)
+        all_items.extend(items)
+
+    if all_items:
+        router = DataRouter()
+        results = await router.route(all_items)
+        return {"scraper": "discord", "items_scraped": len(all_items), "routing": results}
+    return {"scraper": "discord", "items_scraped": 0}
 
 
 # ── Mastodon ──────────────────────────────────────────────────

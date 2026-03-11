@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from kafka import KafkaProducer
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -26,7 +26,7 @@ def publish_scraped_item(producer: KafkaProducer, item: dict, platform: str):
     envelope = {
         "platform": platform,
         "item": item,
-        "published_at": datetime.utcnow().isoformat(),
+        "published_at": datetime.now(timezone.utc).isoformat(),
     }
     producer.send(TOPIC_RAW, key=key, value=envelope)
 

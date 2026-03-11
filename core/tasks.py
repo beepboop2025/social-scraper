@@ -21,18 +21,12 @@ from core.scheduler import app
 
 logger = logging.getLogger(__name__)
 
+_collectors_cache = None
+
 
 def _run_async(coro):
     """Run an async coroutine from a sync Celery task."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, coro).result()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+    return asyncio.run(coro)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -43,8 +37,11 @@ def _run_async(coro):
 def run_collector(self, source_name: str):
     """Run a single collector by name (from sources.yaml registry)."""
     try:
-        from core.registry import discover_collectors
-        collectors = discover_collectors()
+        global _collectors_cache
+        if _collectors_cache is None:
+            from core.registry import discover_collectors
+            _collectors_cache = discover_collectors()
+        collectors = _collectors_cache
 
         if source_name not in collectors:
             logger.error(f"Unknown source: {source_name}")
@@ -84,8 +81,9 @@ def _make_router():
 async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
     """Generic: create scraper → call method → route results → store locally."""
     router = _make_router()
-    scraper = scraper_factory()
+    scraper = None
     try:
+        scraper = scraper_factory()
         method = getattr(scraper, method_name)
         items = await method(**kwargs)
 
@@ -102,7 +100,7 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
 
         return result
     finally:
-        if hasattr(scraper, "close"):
+        if scraper and hasattr(scraper, "close"):
             await scraper.close()
 
 
@@ -306,7 +304,7 @@ def scrape_discord(self):
         from scrapers.discord_scraper import DiscordScraper
         return _run_async(_scrape_and_route(
             lambda: DiscordScraper(bot_token=bot_token),
-            "scrape_financial_channels",
+            "scrape",
         ))
     except Exception as e:
         logger.error(f"[Discord] {e}")
@@ -407,9 +405,10 @@ async def _route_collected_data():
             return {"routed": 0, "message": "No new data"}
 
         # Push articles via Redis to DragonScope
+        ds_redis = None
         try:
-            import redis
-            ds_redis = redis.from_url(
+            import redis.asyncio as aioredis
+            ds_redis = aioredis.from_url(
                 os.getenv("DRAGONSCOPE_REDIS_URL", "redis://localhost:6379/1"),
                 decode_responses=True,
             )
@@ -432,13 +431,13 @@ async def _route_collected_data():
                     "source": "econscraper",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                ds_redis.set("market:news", json.dumps(article_payload, default=str), ex=300)
+                await ds_redis.set("market:news", json.dumps(article_payload, default=str), ex=300)
                 results["articles"] = len(recent_articles)
 
                 # Categorize for DragonScope
                 for category in set(a.category or "news" for a in recent_articles):
                     cat_articles = [a for a in recent_articles if (a.category or "news") == category]
-                    ds_redis.set(
+                    await ds_redis.set(
                         f"market:{category}",
                         json.dumps({
                             "articles": [{"title": a.title, "url": a.url, "source": a.source} for a in cat_articles],
@@ -449,7 +448,7 @@ async def _route_collected_data():
                     )
 
                 # Publish update notification
-                ds_redis.publish("market:updates", json.dumps({
+                await ds_redis.publish("market:updates", json.dumps({
                     "type": "new_articles",
                     "count": len(recent_articles),
                     "source": "econscraper",
@@ -471,22 +470,25 @@ async def _route_collected_data():
                     "source": "econscraper",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                ds_redis.set("market:economic_data", json.dumps(econ_payload, default=str), ex=600)
-                ds_redis.publish("market:updates", json.dumps({
+                await ds_redis.set("market:economic_data", json.dumps(econ_payload, default=str), ex=600)
+                await ds_redis.publish("market:updates", json.dumps({
                     "type": "economic_data",
                     "count": len(recent_econ),
                 }))
                 results["dragonscope"]["economic_data"] = len(recent_econ)
                 results["economic_data"] = len(recent_econ)
-
-            ds_redis.close()
         except Exception as e:
             logger.warning(f"[Route] DragonScope push failed: {e}")
             results["dragonscope"]["error"] = str(e)
+        finally:
+            if ds_redis:
+                await ds_redis.close()
 
         # Push treasury-relevant articles to LiquiFi
+        lf_redis = None
         try:
-            lf_redis = redis.from_url(
+            import redis.asyncio as aioredis
+            lf_redis = aioredis.from_url(
                 os.getenv("LIQUIFI_REDIS_URL", "redis://localhost:6379/2"),
                 decode_responses=True,
             )
@@ -514,13 +516,13 @@ async def _route_collected_data():
                     })
 
             if treasury_articles:
-                lf_redis.set("liquifi:treasury_news", json.dumps({
+                await lf_redis.set("liquifi:treasury_news", json.dumps({
                     "news": treasury_articles,
                     "source": "econscraper",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }, default=str), ex=600)
 
-                lf_redis.publish("liquifi:updates", json.dumps({
+                await lf_redis.publish("liquifi:updates", json.dumps({
                     "type": "treasury_news",
                     "count": len(treasury_articles),
                 }))
@@ -529,7 +531,7 @@ async def _route_collected_data():
             rate_sources = {"fred_api", "rbi_dbie", "ccil_rates"}
             rate_data = [e for e in recent_econ if e.source in rate_sources]
             if rate_data:
-                lf_redis.set("liquifi:rate_data", json.dumps({
+                await lf_redis.set("liquifi:rate_data", json.dumps({
                     "rates": [
                         {
                             "indicator": e.indicator,
@@ -544,11 +546,12 @@ async def _route_collected_data():
 
             results["liquifi"]["treasury_articles"] = len(treasury_articles)
             results["liquifi"]["rate_data"] = len(rate_data)
-
-            lf_redis.close()
         except Exception as e:
             logger.warning(f"[Route] LiquiFi push failed: {e}")
             results["liquifi"]["error"] = str(e)
+        finally:
+            if lf_redis:
+                await lf_redis.close()
 
         return results
     finally:
@@ -609,7 +612,7 @@ def push_stats():
         import redis
         r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
 
-        stats_keys = r.keys("health:*")
+        stats_keys = list(r.scan_iter("health:*"))
         health = {}
         for key in stats_keys:
             data = r.get(key)

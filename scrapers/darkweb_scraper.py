@@ -81,6 +81,11 @@ class DarkWebScraper(BaseScraper):
             follow_redirects=True,
         )
 
+    async def close(self):
+        """Close both HTTP clients."""
+        await self._tor_http.aclose()
+        await self._surface_http.aclose()
+
     # --- Surface web threat intel sources (no Tor needed) ---
 
     SURFACE_FEEDS = [
@@ -216,7 +221,8 @@ class DarkWebScraper(BaseScraper):
         try:
             resp = await self._surface_http.get("https://psbdmp.ws/api/v3/getlatest")
             if resp.status_code == 200:
-                pastes = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
+                data = resp.json()
+                pastes = data if isinstance(data, list) else data.get("data", [])
                 for paste in pastes[:50]:
                     text = paste.get("text", "") or paste.get("content", "")
                     if text and any(kw in text.lower() for kw in FINANCIAL_THREAT_KEYWORDS):
@@ -295,7 +301,7 @@ class DarkWebScraper(BaseScraper):
         """Check Tor connectivity."""
         base = await super().health_check()
         try:
-            resp = await self._tor_http.get("https://check.torproject.org/api/ip")
+            resp = await self._surface_http.get("https://check.torproject.org/api/ip")
             tor_data = resp.json()
             base["tor_connected"] = tor_data.get("IsTor", False)
             base["tor_ip"] = tor_data.get("IP", "unknown")

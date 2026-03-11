@@ -4,6 +4,7 @@ Plugin-based collectors, NLP/ML pipeline, RAG-powered API.
 TimescaleDB + pgvector + MinIO storage. 24/7 operation.
 """
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -56,7 +57,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )

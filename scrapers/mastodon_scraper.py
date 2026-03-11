@@ -48,6 +48,10 @@ class MastodonScraper(BaseScraper):
             headers={"User-Agent": "SocialScraper/3.0"},
         )
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
+
     def _parse_status(self, status: dict, instance: str = "") -> ScrapedItem:
         account = status.get("account", {})
 

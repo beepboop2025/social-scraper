@@ -24,21 +24,25 @@ class RateLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self):
-        async with self._lock:
-            now = time.monotonic()
-            elapsed = now - self._last_refill
-            self._tokens = min(
-                self.burst,
-                self._tokens + elapsed * (self.max_per_minute / 60.0),
-            )
-            self._last_refill = now
+        while True:
+            wait = 0.0
+            async with self._lock:
+                now = time.monotonic()
+                elapsed = now - self._last_refill
+                self._tokens = min(
+                    self.burst,
+                    self._tokens + elapsed * (self.max_per_minute / 60.0),
+                )
+                self._last_refill = now
 
-            if self._tokens < 1.0:
-                wait = (1.0 - self._tokens) / (self.max_per_minute / 60.0)
-                await asyncio.sleep(wait)
-                self._tokens = 0.0
-            else:
-                self._tokens -= 1.0
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                else:
+                    wait = (1.0 - self._tokens) / (self.max_per_minute / 60.0)
+
+            # Sleep outside the lock, then retry
+            await asyncio.sleep(wait)
 
 
 class BaseScraper(ABC):

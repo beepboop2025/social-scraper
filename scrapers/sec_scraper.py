@@ -63,6 +63,10 @@ class SECScraper(BaseScraper):
             },
         )
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
+
     def _parse_filing(self, filing: dict) -> ScrapedItem:
         """Parse a filing from EDGAR search results."""
         form_type = filing.get("form_type", "") or filing.get("forms", "")
@@ -148,7 +152,7 @@ class SECScraper(BaseScraper):
             return []
 
         # Parse Atom feed
-        from xml.etree import ElementTree as ET
+        import defusedxml.ElementTree as ET
         root = ET.fromstring(resp.text)
         ns = "{http://www.w3.org/2005/Atom}"
 

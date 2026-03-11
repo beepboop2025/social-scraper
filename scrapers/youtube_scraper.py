@@ -53,6 +53,10 @@ class YouTubeScraper(BaseScraper):
         self.api_key = api_key
         self._http = httpx.AsyncClient(timeout=30)
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
+
     async def _get(self, endpoint: str, params: dict) -> dict:
         if self.api_key:
             params["key"] = self.api_key

@@ -55,6 +55,10 @@ class GitHubScraper(BaseScraper):
             headers["Authorization"] = f"Bearer {token}"
         self._http = httpx.AsyncClient(timeout=30, headers=headers)
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
+
     async def _get(self, endpoint: str, params: Optional[dict] = None) -> dict | list:
         resp = await self._http.get(f"{self.BASE_URL}{endpoint}", params=params)
         resp.raise_for_status()

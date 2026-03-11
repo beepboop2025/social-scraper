@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Optional
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET
 
 import httpx
 
@@ -73,6 +73,10 @@ class RSSScraper(BaseScraper):
             headers={"User-Agent": "SocialScraper/3.0 (Financial RSS Reader)"},
             follow_redirects=True,
         )
+
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
 
     def _parse_date(self, date_str: Optional[str]) -> datetime:
         if not date_str:

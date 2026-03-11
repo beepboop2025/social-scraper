@@ -16,7 +16,7 @@ def get_all_health() -> dict:
     """Read health status of all collectors from Redis."""
     try:
         r = redis.from_url(REDIS_URL, decode_responses=True)
-        keys = r.keys("health:*")
+        keys = list(r.scan_iter("health:*"))
         result = {}
         for key in keys:
             data = r.get(key)

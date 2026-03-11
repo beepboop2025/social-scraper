@@ -1,7 +1,7 @@
 """Data transforms applied in the pipeline between raw and enriched stages."""
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def clean_text(text: str) -> str:
@@ -46,7 +46,7 @@ def enrich_item(raw_item: dict) -> dict:
         item.get("replies", 0),
         item.get("views"),
     )
-    item["enriched_at"] = datetime.utcnow().isoformat()
+    item["enriched_at"] = datetime.now(timezone.utc).isoformat()
 
     # Financial NLP enrichment
     try:

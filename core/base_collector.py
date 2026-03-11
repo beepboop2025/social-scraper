@@ -62,6 +62,10 @@ class BaseCollector(ABC):
             follow_redirects=True,
         )
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
+
     # ── Abstract methods (subclass MUST implement) ────────────
 
     @abstractmethod
@@ -146,6 +150,9 @@ class BaseCollector(ABC):
             self._maybe_alert()
             logger.exception(f"[{self.name}] Unexpected error")
             return self._result("failed", 0, duration, str(e))
+
+        finally:
+            await self.close()
 
     async def _retry_with_backoff(self, func, *args):
         """Exponential backoff retry wrapper."""

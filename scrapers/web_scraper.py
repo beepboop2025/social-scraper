@@ -52,6 +52,10 @@ class WebScraper(BaseScraper):
             follow_redirects=True,
         )
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
+
     def _extract_date(self, soup: BeautifulSoup) -> datetime:
         """Try to extract publication date from meta tags or content."""
         # Common meta tag patterns

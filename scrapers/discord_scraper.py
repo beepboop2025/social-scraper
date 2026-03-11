@@ -39,6 +39,10 @@ class DiscordScraper(BaseScraper):
             },
         )
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
+
     async def _get(self, endpoint: str, params: Optional[dict] = None) -> dict | list:
         resp = await self._http.get(f"{self.BASE_URL}{endpoint}", params=params)
         resp.raise_for_status()
@@ -65,7 +69,7 @@ class DiscordScraper(BaseScraper):
                 likes=reactions_count,
                 replies=0,
             ),
-            created_at=datetime.fromisoformat(msg["timestamp"].replace("+00:00", "+00:00")),
+            created_at=datetime.fromisoformat(msg["timestamp"].replace("Z", "+00:00")),
             is_reply=bool(msg.get("referenced_message")),
             parent_id=msg.get("referenced_message", {}).get("id") if msg.get("referenced_message") else None,
             source_channel=f"#{channel_name}" if channel_name else msg.get("channel_id"),

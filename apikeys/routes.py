@@ -1,12 +1,26 @@
 """FastAPI routes for API key management — integrated into econscraper API."""
 
 import logging
+import os
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/keys", tags=["api_keys"])
+
+
+def verify_admin_key(x_admin_key: str = Header(...)):
+    """Verify the admin API key from the X-Admin-Key header."""
+    expected = os.getenv("ADMIN_API_KEY", "")
+    if not expected or x_admin_key != expected:
+        raise HTTPException(status_code=403, detail="Invalid or missing admin key")
+    return x_admin_key
+
+
+class StoreKeyRequest(BaseModel):
+    key: str
 
 
 @router.get("/status")
@@ -90,7 +104,7 @@ async def quickstart():
 
 
 @router.post("/store/{api_id}")
-async def store_key(api_id: str, key: str = Query(..., min_length=4)):
+async def store_key(api_id: str, body: StoreKeyRequest, _admin=Depends(verify_admin_key)):
     """Store an API key in the encrypted vault."""
     from apikeys.catalog import CATALOG
     from apikeys.vault import KeyVault
@@ -100,7 +114,7 @@ async def store_key(api_id: str, key: str = Query(..., min_length=4)):
 
     info = CATALOG[api_id]
     vault = KeyVault()
-    vault.store(api_id, key, env_var=info.get("env_var", ""))
+    vault.store(api_id, body.key, env_var=info.get("env_var", ""))
 
     return {
         "status": "stored",
@@ -111,7 +125,7 @@ async def store_key(api_id: str, key: str = Query(..., min_length=4)):
 
 
 @router.post("/validate/{api_id}")
-async def validate_key(api_id: str):
+async def validate_key(api_id: str, _admin=Depends(verify_admin_key)):
     """Validate a stored key by making a test API call."""
     from apikeys.validator import KeyValidator
     from apikeys.vault import KeyVault
@@ -129,7 +143,7 @@ async def validate_key(api_id: str):
 
 
 @router.post("/validate-all")
-async def validate_all_keys():
+async def validate_all_keys(_admin=Depends(verify_admin_key)):
     """Validate all stored keys."""
     from apikeys.validator import KeyValidator
     from apikeys.vault import KeyVault
@@ -157,7 +171,7 @@ async def validate_all_keys():
 
 
 @router.post("/inject")
-async def inject_keys():
+async def inject_keys(_admin=Depends(verify_admin_key)):
     """Inject all vault keys into .env file and runtime."""
     from apikeys.injector import KeyInjector
 
@@ -167,7 +181,7 @@ async def inject_keys():
 
 
 @router.get("/vault")
-async def list_vault():
+async def list_vault(_admin=Depends(verify_admin_key)):
     """List all keys in the vault (masked)."""
     from apikeys.vault import KeyVault
 
@@ -176,7 +190,7 @@ async def list_vault():
 
 
 @router.delete("/vault/{api_id}")
-async def remove_key(api_id: str):
+async def remove_key(api_id: str, _admin=Depends(verify_admin_key)):
     """Remove a key from the vault."""
     from apikeys.vault import KeyVault
 

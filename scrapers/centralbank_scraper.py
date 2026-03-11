@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Optional
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET
 
 import httpx
 
@@ -36,6 +36,10 @@ class CentralBankScraper(BaseScraper):
             headers={"User-Agent": "SocialScraper/3.0 Financial Research"},
             follow_redirects=True,
         )
+
+    async def close(self):
+        """Close the HTTP client."""
+        await self._http.aclose()
 
     def _strip_html(self, text: str) -> str:
         return re.sub(r"<[^>]+>", "", text).strip()

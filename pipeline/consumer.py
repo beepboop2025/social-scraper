@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from kafka import KafkaConsumer, KafkaProducer
 
 from pipeline.transforms import enrich_item
@@ -58,7 +58,7 @@ def run_consumer():
             producer.send(TOPIC_ENRICHED, key=key, value={
                 "platform": platform,
                 "item": enriched,
-                "enriched_at": datetime.utcnow().isoformat(),
+                "enriched_at": datetime.now(timezone.utc).isoformat(),
             })
 
             # Store in PostgreSQL
@@ -77,8 +77,8 @@ def run_consumer():
                     hashtags=enriched.get("hashtags", []),
                     mentions=enriched.get("mentions", []),
                     batch_id=enriched.get("batch_id"),
-                    created_at=datetime.fromisoformat(enriched["created_at"]) if enriched.get("created_at") else datetime.utcnow(),
-                    scraped_at=datetime.utcnow(),
+                    created_at=datetime.fromisoformat(enriched["created_at"]) if enriched.get("created_at") else datetime.now(timezone.utc),
+                    scraped_at=datetime.now(timezone.utc),
                 )
                 db.merge(post)
                 db.commit()
