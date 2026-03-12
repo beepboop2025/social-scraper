@@ -66,12 +66,12 @@ class Embedder(BaseProcessor):
             return super().process_batch(articles)
 
         texts = []
-        valid_articles = []
-        for a in articles:
+        valid_indices = set()
+        for i, a in enumerate(articles):
             text = a.get("full_text", "") or a.get("title", "")
             if text and len(text.strip()) >= 10:
                 texts.append(text[:2000])
-                valid_articles.append(a)
+                valid_indices.add(i)
 
         if not texts:
             return [{"article_id": a.get("id"), "status": "skipped"} for a in articles]
@@ -79,16 +79,16 @@ class Embedder(BaseProcessor):
         try:
             embeddings = model.encode(texts, show_progress_bar=False, batch_size=self.batch_size)
             results = []
-            valid_idx = 0
-            for a in articles:
-                if a in valid_articles:
+            embed_idx = 0
+            for i, a in enumerate(articles):
+                if i in valid_indices:
                     results.append({
                         "article_id": a.get("id"),
                         "status": "embedded",
-                        "embedding": embeddings[valid_idx].tolist(),
+                        "embedding": embeddings[embed_idx].tolist(),
                         "model": self.model_name,
                     })
-                    valid_idx += 1
+                    embed_idx += 1
                 else:
                     results.append({"article_id": a.get("id"), "status": "skipped"})
             return results
@@ -136,4 +136,8 @@ class Embedder(BaseProcessor):
                     model_name=r.get("model", self.model_name),
                 )
                 db.add(emb)
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"[Embedder] Failed to store results: {e}")
+            db.rollback()

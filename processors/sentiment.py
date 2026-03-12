@@ -43,6 +43,7 @@ class SentimentAnalyzer(BaseProcessor):
         self.model_name = self.config.get("model", "ProsusAI/finbert")
         self.fallback = self.config.get("fallback", "vader")
         self._pipeline = None
+        self._vader = None
 
     def _get_pipeline(self):
         if self._pipeline is None:
@@ -103,13 +104,14 @@ class SentimentAnalyzer(BaseProcessor):
             return self._vader_score(text)
 
     def _vader_score(self, text: str) -> float:
-        try:
-            from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+        if self._vader is None:
+            try:
+                from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-            analyzer = SentimentIntensityAnalyzer()
-            return analyzer.polarity_scores(text)["compound"]
-        except ImportError:
-            return 0.0
+                self._vader = SentimentIntensityAnalyzer()
+            except ImportError:
+                return 0.0
+        return self._vader.polarity_scores(text)["compound"]
 
     def _detect_policy_direction(self, text: str) -> str:
         text_lower = text.lower()
@@ -145,4 +147,8 @@ class SentimentAnalyzer(BaseProcessor):
                     model_name=r.get("model", "vader"),
                 )
                 db.add(score)
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"[Sentiment] Failed to store results: {e}")
+            db.rollback()

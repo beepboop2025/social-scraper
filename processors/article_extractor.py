@@ -97,4 +97,8 @@ class ArticleExtractor(BaseProcessor):
                 article = db.query(Article).filter(Article.id == r["article_id"]).first()
                 if article:
                     article.full_text = r["full_text"]
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"[ArticleExtractor] Failed to store results: {e}")
+            db.rollback()

@@ -81,8 +81,6 @@ class Deduplicator(BaseProcessor):
 
     def run(self) -> dict:
         """Override run() to also check against DB for cross-batch dedup."""
-        from datetime import datetime, timedelta, timezone
-
         from api.database import SessionLocal
         from storage.models import Article
 
@@ -159,4 +157,8 @@ class Deduplicator(BaseProcessor):
             db.query(Article).filter(Article.id.in_(dup_ids)).update(
                 {"is_processed": True}, synchronize_session=False
             )
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"[Deduplicator] Failed to store results: {e}")
+                db.rollback()

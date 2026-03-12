@@ -136,4 +136,8 @@ class TopicClassifier(BaseProcessor):
                         topic=t["topic"],
                         confidence=t.get("confidence", 1.0),
                     ))
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"[TopicClassifier] Failed to store results: {e}")
+            db.rollback()

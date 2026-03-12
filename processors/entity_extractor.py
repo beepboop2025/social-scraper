@@ -101,9 +101,9 @@ class EntityExtractor(BaseProcessor):
     def _extract_custom_entities(self, text: str) -> list[dict]:
         entities = []
 
-        # Financial organizations
+        # Financial organizations (word-boundary match to avoid "Fed" in "Federal", etc.)
         for org in CUSTOM_ORGS:
-            if org in text:
+            if re.search(rf'\b{re.escape(org)}\b', text):
                 entities.append({"type": "FIN_ORG", "value": org, "confidence": 1.0})
 
         # Policy terms
@@ -137,4 +137,8 @@ class EntityExtractor(BaseProcessor):
                         entity_value=ent["value"],
                         confidence=ent.get("confidence", 1.0),
                     ))
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"[EntityExtractor] Failed to store results: {e}")
+            db.rollback()
