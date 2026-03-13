@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 PDF_EXTENSIONS = (".pdf",)
 PDF_CONTENT_TYPES = ("application/pdf",)
+_HEADERS = {
+    "User-Agent": "EconScraper/4.0 (pdf-extractor; +https://github.com)",
+}
 
 
 class PDFExtractor(BaseProcessor):
@@ -56,7 +59,7 @@ class PDFExtractor(BaseProcessor):
         try:
             import httpx
 
-            resp = httpx.head(url, timeout=10, follow_redirects=True)
+            resp = httpx.head(url, timeout=10, follow_redirects=True, headers=_HEADERS)
             ct = resp.headers.get("content-type", "")
             return any(t in ct for t in PDF_CONTENT_TYPES)
         except Exception:
@@ -67,7 +70,7 @@ class PDFExtractor(BaseProcessor):
             import httpx
             import pdfplumber
 
-            resp = httpx.get(url, timeout=self.timeout, follow_redirects=True)
+            resp = httpx.get(url, timeout=self.timeout, follow_redirects=True, headers=_HEADERS)
             if resp.status_code != 200:
                 return None
 

@@ -27,6 +27,9 @@ POLICY_TERMS = {
     "GDP", "GVA", "PMI", "NPA", "GNPA", "NNPA", "PCR",
 }
 
+# Pre-compiled alternation patterns for efficient single-pass matching
+_ORG_PATTERN = re.compile(r'\b(' + '|'.join(re.escape(o) for o in CUSTOM_ORGS) + r')\b')
+_POLICY_PATTERN = re.compile(r'\b(' + '|'.join(re.escape(t) for t in POLICY_TERMS) + r')\b')
 TICKER_PATTERN = re.compile(r'\$([A-Z]{1,5})\b')
 MONEY_PATTERN = re.compile(
     r'(?:Rs\.?|INR|USD|\$|₹)\s*[\d,]+(?:\.\d+)?\s*(?:cr(?:ore)?|lakh|billion|million|trillion|bn|mn)?',
@@ -101,15 +104,13 @@ class EntityExtractor(BaseProcessor):
     def _extract_custom_entities(self, text: str) -> list[dict]:
         entities = []
 
-        # Financial organizations (word-boundary match to avoid "Fed" in "Federal", etc.)
-        for org in CUSTOM_ORGS:
-            if re.search(rf'\b{re.escape(org)}\b', text):
-                entities.append({"type": "FIN_ORG", "value": org, "confidence": 1.0})
+        # Financial organizations (single-pass alternation pattern)
+        for match in _ORG_PATTERN.finditer(text):
+            entities.append({"type": "FIN_ORG", "value": match.group(), "confidence": 1.0})
 
-        # Policy terms
-        for term in POLICY_TERMS:
-            if re.search(rf'\b{re.escape(term)}\b', text):
-                entities.append({"type": "POLICY", "value": term, "confidence": 1.0})
+        # Policy terms (single-pass alternation pattern)
+        for match in _POLICY_PATTERN.finditer(text):
+            entities.append({"type": "POLICY", "value": match.group(), "confidence": 1.0})
 
         # Stock tickers
         for match in TICKER_PATTERN.finditer(text):

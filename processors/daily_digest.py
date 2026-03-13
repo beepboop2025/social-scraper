@@ -20,7 +20,7 @@ class DailyDigestGenerator(BaseProcessor):
 
     def __init__(self, config: dict = None):
         super().__init__(config)
-        self.llm_model = self.config.get("llm_model", "claude-sonnet-4-20250514")
+        self.llm_model = self.config.get("llm_model", "claude-sonnet-4-6")
         self.ollama_model = self.config.get("ollama_model", "llama3")
         self.ollama_url = self.config.get("ollama_url", "http://localhost:11434")
         self.max_articles = self.config.get("max_articles", 50)

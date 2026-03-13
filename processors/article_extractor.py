@@ -11,6 +11,10 @@ from core.base_processor import BaseProcessor
 
 logger = logging.getLogger(__name__)
 
+_HEADERS = {
+    "User-Agent": "EconScraper/4.0 (article-extractor; +https://github.com)",
+}
+
 
 class ArticleExtractor(BaseProcessor):
     name = "article_extractor"
@@ -70,7 +74,7 @@ class ArticleExtractor(BaseProcessor):
             import httpx
             from bs4 import BeautifulSoup
 
-            resp = httpx.get(url, timeout=self.timeout, follow_redirects=True)
+            resp = httpx.get(url, timeout=self.timeout, follow_redirects=True, headers=_HEADERS)
             if resp.status_code != 200:
                 return None
 
