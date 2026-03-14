@@ -36,12 +36,20 @@ class TelegramAlertBot:
             logger.warning(f"[TelegramBot] Send failed: {e}")
             return False
 
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        """Escape Markdown special characters for Telegram."""
+        for ch in r"\_*[]()~`>#+-=|{}.!":
+            text = text.replace(ch, f"\\{ch}")
+        return text
+
     def send_alert(self, source: str, error: str, consecutive_failures: int = 1):
         severity = "WARNING" if consecutive_failures < 5 else "CRITICAL"
+        safe_error = self._escape_markdown(error[:500])
         msg = (
             f"*{severity}* — EconScraper\n\n"
             f"Source: `{source}`\n"
-            f"Error: {error[:500]}\n"
+            f"Error: {safe_error}\n"
             f"Consecutive failures: {consecutive_failures}"
         )
         self.send(msg)

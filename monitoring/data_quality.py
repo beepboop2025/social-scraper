@@ -32,7 +32,7 @@ class DataQualityChecker:
             "youtube": 2,
             "mastodon": 2,
             "github": 4,
-            "sec": 4,
+            "sec_edgar": 4,
             "discord": 4,
             "darkweb": 8,
             "web": 2,

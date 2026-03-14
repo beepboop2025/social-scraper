@@ -1,10 +1,13 @@
 """Source validator — checks that all configured sources can be reached."""
 
 import logging
+from pathlib import Path
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+CONFIG_PATH = Path(__file__).parent.parent / "config" / "sources.yaml"
 
 
 class SourceValidator:
@@ -14,7 +17,7 @@ class SourceValidator:
         """Validate all sources in sources.yaml."""
         results = []
         try:
-            with open("config/sources.yaml") as f:
+            with open(CONFIG_PATH) as f:
                 config = yaml.safe_load(f)
 
             for source_name, source_cfg in config.get("sources", {}).items():

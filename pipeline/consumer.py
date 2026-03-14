@@ -1,17 +1,24 @@
 """Kafka consumer — processes raw posts, enriches, and stores in PostgreSQL."""
 
 import json
+import logging
 import os
+import signal
+import sys
 from datetime import datetime, timezone
 from kafka import KafkaConsumer, KafkaProducer
 
 from pipeline.transforms import enrich_item
+
+logger = logging.getLogger(__name__)
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC_RAW = "raw-posts"
 TOPIC_ENRICHED = "enriched-posts"
 TOPIC_ANALYSIS = "analysis-results"
 GROUP_ID = "scraper-enrichment"
+
+_shutdown_requested = False
 
 
 def create_consumer() -> KafkaConsumer:
@@ -20,7 +27,7 @@ def create_consumer() -> KafkaConsumer:
         bootstrap_servers=KAFKA_BOOTSTRAP,
         group_id=GROUP_ID,
         auto_offset_reset="earliest",
-        enable_auto_commit=True,
+        enable_auto_commit=False,
         value_deserializer=lambda m: json.loads(m.decode("utf-8")),
     )
 
@@ -35,6 +42,16 @@ def create_enrichment_producer() -> KafkaProducer:
 
 def run_consumer():
     """Main consumer loop — reads raw posts, enriches, publishes to enriched topic, stores in DB."""
+    global _shutdown_requested
+
+    def _handle_signal(sig, frame):
+        global _shutdown_requested
+        logger.info("[Consumer] Shutdown requested, finishing current message...")
+        _shutdown_requested = True
+
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
     consumer = create_consumer()
     producer = create_enrichment_producer()
 
@@ -42,54 +59,63 @@ def run_consumer():
     from api.database import SessionLocal
     from api.models import ScrapedPost
 
-    print(f"[Consumer] Listening on {TOPIC_RAW}...")
+    logger.info(f"[Consumer] Listening on {TOPIC_RAW}...")
 
-    for message in consumer:
-        try:
-            envelope = message.value
-            platform = envelope.get("platform", "unknown")
-            raw_item = envelope.get("item", {})
-
-            # Enrich
-            enriched = enrich_item(raw_item)
-
-            # Publish to enriched topic
-            key = f"{platform}:{enriched.get('id', 'unknown')}"
-            producer.send(TOPIC_ENRICHED, key=key, value={
-                "platform": platform,
-                "item": enriched,
-                "enriched_at": datetime.now(timezone.utc).isoformat(),
-            })
-
-            # Store in PostgreSQL
-            db = SessionLocal()
+    try:
+        for message in consumer:
+            if _shutdown_requested:
+                break
             try:
-                post = ScrapedPost(
-                    platform=platform,
-                    platform_id=str(enriched.get("id", "")),
-                    text=enriched.get("text", ""),
-                    author_username=enriched.get("author_username"),
-                    author_display_name=enriched.get("author_display_name", "Unknown"),
-                    likes=enriched.get("likes", 0),
-                    replies=enriched.get("replies", 0),
-                    reposts=enriched.get("reposts", 0),
-                    views=enriched.get("views"),
-                    hashtags=enriched.get("hashtags", []),
-                    mentions=enriched.get("mentions", []),
-                    batch_id=enriched.get("batch_id"),
-                    created_at=datetime.fromisoformat(enriched["created_at"]) if enriched.get("created_at") else datetime.now(timezone.utc),
-                    scraped_at=datetime.now(timezone.utc),
-                )
-                db.merge(post)
-                db.commit()
-            finally:
-                db.close()
+                envelope = message.value
+                platform = envelope.get("platform", "unknown")
+                raw_item = envelope.get("item", {})
 
-        except Exception as e:
-            print(f"[Consumer] Error processing message: {e}")
+                # Enrich
+                enriched = enrich_item(raw_item)
 
-    consumer.close()
-    producer.close()
+                # Publish to enriched topic
+                key = f"{platform}:{enriched.get('id', 'unknown')}"
+                producer.send(TOPIC_ENRICHED, key=key, value={
+                    "platform": platform,
+                    "item": enriched,
+                    "enriched_at": datetime.now(timezone.utc).isoformat(),
+                })
+                producer.flush()
+
+                # Store in PostgreSQL
+                db = SessionLocal()
+                try:
+                    post = ScrapedPost(
+                        platform=platform,
+                        platform_id=str(enriched.get("id", "")),
+                        text=enriched.get("text", ""),
+                        author_username=enriched.get("author_username"),
+                        author_display_name=enriched.get("author_display_name", "Unknown"),
+                        likes=enriched.get("likes", 0),
+                        replies=enriched.get("replies", 0),
+                        reposts=enriched.get("reposts", 0),
+                        views=enriched.get("views"),
+                        hashtags=enriched.get("hashtags", []),
+                        mentions=enriched.get("mentions", []),
+                        batch_id=enriched.get("batch_id"),
+                        created_at=datetime.fromisoformat(enriched["created_at"]) if enriched.get("created_at") else datetime.now(timezone.utc),
+                        scraped_at=datetime.now(timezone.utc),
+                    )
+                    db.merge(post)
+                    db.commit()
+                finally:
+                    db.close()
+
+                # Commit offset only after successful processing + storage
+                consumer.commit()
+
+            except Exception as e:
+                logger.error(f"[Consumer] Error processing message: {e}")
+    finally:
+        producer.flush()
+        consumer.close()
+        producer.close()
+        logger.info("[Consumer] Shut down cleanly.")
 
 
 if __name__ == "__main__":
