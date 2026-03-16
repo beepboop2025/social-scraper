@@ -7,8 +7,8 @@ from core.base_collector import BaseCollector
 
 logger = logging.getLogger(__name__)
 
-# IST offset from UTC (+5:30)
-_IST_OFFSET = timedelta(hours=5, minutes=30)
+# IST timezone (+5:30)
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 
 class NSEBhavcopy(BaseCollector):
@@ -66,7 +66,7 @@ class NSEBhavcopy(BaseCollector):
 
         if "derivatives" in self.types:
             try:
-                ist_now = datetime.now(timezone.utc) + _IST_OFFSET
+                ist_now = datetime.now(_IST)
                 date_str = ist_now.strftime("%d-%m-%Y")
                 resp = await self._http.get(
                     f"{self.NSE_URL}/api/reports",
@@ -105,7 +105,10 @@ class NSEBhavcopy(BaseCollector):
                                     "date": datetime.now(timezone.utc),
                                     "value": float(val),
                                     "unit": "INR",
-                                    "metadata": item,
+                                    "metadata": {
+                                        k: v for k, v in item.items()
+                                        if isinstance(v, (str, int, float, bool))
+                                    },
                                 })
         return pd.DataFrame(rows)
 

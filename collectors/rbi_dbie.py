@@ -125,11 +125,23 @@ class RBIDbie(BaseCollector):
     async def _collect_sectoral_credit(self) -> list[dict]:
         return await self._scrape_rbi_page("sectoral-credit")
 
+    # RBI publication page IDs — numeric IDs required by PublicationsView.aspx
+    _RBI_PAGE_IDS = {
+        "weekly-statistical-supplement": "11004",
+        "money-supply": "11040",
+        "forex-reserves": "10004",
+        "sectoral-credit": "11043",
+    }
+
     async def _scrape_rbi_page(self, page: str) -> list[dict]:
         """Generic RBI page scraper for tabular data."""
         records = []
+        page_id = self._RBI_PAGE_IDS.get(page)
+        if not page_id:
+            logger.warning(f"[RBI-DBIE] No known page ID for '{page}', skipping scrape fallback")
+            return records
         try:
-            resp = await self._http.get(f"https://rbi.org.in/scripts/PublicationsView.aspx?Id={page}")
+            resp = await self._http.get(f"https://rbi.org.in/scripts/PublicationsView.aspx?Id={page_id}")
             if resp.status_code == 200:
                 from bs4 import BeautifulSoup
                 soup = BeautifulSoup(resp.text, "html.parser")

@@ -5,7 +5,7 @@ sources:
     schedule: "0 6 * * *"              # 6 AM IST daily
     collector_class: "collectors.rbi_dbie.RBIDbie"
     config:
-      base_url: "https://dbie.rbi.org.in"
+      base_url: "https://dbie.rbi.org.in/DBIE"
       datasets:
         - weekly_statistical_supplement
         - forex_reserves
