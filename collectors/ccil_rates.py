@@ -47,28 +47,35 @@ class CCILCollector(BaseCollector):
 
     async def _collect_fbil_rates(self) -> list[dict]:
         """FBIL benchmark rates — MIBOR O/N, Term MIBOR, MIFOR."""
-        resp = await self._http.get(f"{self.FBIL_URL}/api/ratesapi")
-        if resp.status_code != 200:
-            # Scrape page as fallback
+        records = []
+
+        # Try JSON API first
+        try:
+            resp = await self._http.get(f"{self.FBIL_URL}/api/ratesapi")
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data if isinstance(data, list) else [data]:
+                    for key, value in item.items():
+                        if isinstance(value, (int, float)):
+                            records.append({
+                                "indicator": f"fbil_{key}",
+                                "value": float(value),
+                                "date": datetime.now(timezone.utc).isoformat(),
+                                "source_type": "fbil_reference_rates",
+                            })
+                if records:
+                    return records
+        except Exception as e:
+            logger.warning(f"[CCIL] FBIL API failed: {e}")
+
+        # Fallback: scrape HTML page
+        try:
+            from bs4 import BeautifulSoup
             resp = await self._http.get(f"{self.FBIL_URL}")
             if resp.status_code != 200:
+                logger.warning(f"[CCIL] FBIL HTML page returned {resp.status_code}")
                 return []
 
-        records = []
-        try:
-            data = resp.json()
-            for item in data if isinstance(data, list) else [data]:
-                for key, value in item.items():
-                    if isinstance(value, (int, float)):
-                        records.append({
-                            "indicator": f"fbil_{key}",
-                            "value": float(value),
-                            "date": datetime.now(timezone.utc).isoformat(),
-                            "source_type": "fbil_reference_rates",
-                        })
-        except Exception:
-            # Parse HTML fallback
-            from bs4 import BeautifulSoup
             soup = BeautifulSoup(resp.text, "html.parser")
             rate_tables = soup.find_all("table")
             for table in rate_tables:
@@ -87,54 +94,108 @@ class CCILCollector(BaseCollector):
                             })
                         except (ValueError, TypeError):
                             pass
+        except Exception as e:
+            logger.warning(f"[CCIL] FBIL HTML scrape failed: {e}")
+
         return records
 
     async def _collect_mibor(self) -> list[dict]:
-        """MIBOR overnight, 14-day, 1-month, 3-month."""
-        # MIBOR is published by FBIL — try their API/page
-        records = []
-        tenors = {"overnight": "O/N", "14day": "14D", "1month": "1M", "3month": "3M"}
-        for tenor_key, tenor_label in tenors.items():
-            records.append({
-                "indicator": f"mibor_{tenor_key}",
-                "value": None,  # Will be populated from actual API response
-                "date": datetime.now(timezone.utc).isoformat(),
-                "source_type": "mibor",
-                "metadata": {"tenor": tenor_label},
-            })
-        return records
+        """MIBOR overnight, 14-day, 1-month, 3-month via FBIL."""
+        try:
+            resp = await self._http.get(f"{self.FBIL_URL}/api/mibor")
+            if resp.status_code != 200:
+                logger.warning(f"[CCIL] MIBOR endpoint returned {resp.status_code}")
+                return []
+            data = resp.json()
+            records = []
+            tenors = {"overnight": "O/N", "14day": "14D", "1month": "1M", "3month": "3M"}
+            for tenor_key, tenor_label in tenors.items():
+                value = data.get(tenor_key) or data.get(tenor_label)
+                if value is not None:
+                    records.append({
+                        "indicator": f"mibor_{tenor_key}",
+                        "value": float(value),
+                        "date": datetime.now(timezone.utc).isoformat(),
+                        "source_type": "mibor",
+                        "metadata": {"tenor": tenor_label},
+                    })
+            return records
+        except Exception as e:
+            logger.warning(f"[CCIL] MIBOR collection failed: {e}")
+            return []
 
     async def _collect_treps(self) -> list[dict]:
         """TREPS (Triparty Repo) rates."""
-        return [{
-            "indicator": "treps_weighted_avg",
-            "value": None,
-            "date": datetime.now(timezone.utc).isoformat(),
-            "source_type": "treps_rates",
-        }]
+        try:
+            resp = await self._http.get(f"{self.FBIL_URL}/api/treps")
+            if resp.status_code != 200:
+                logger.warning(f"[CCIL] TREPS endpoint returned {resp.status_code}")
+                return []
+            data = resp.json()
+            value = data.get("weighted_avg") or data.get("rate")
+            if value is None:
+                logger.warning("[CCIL] TREPS response missing rate value")
+                return []
+            return [{
+                "indicator": "treps_weighted_avg",
+                "value": float(value),
+                "date": datetime.now(timezone.utc).isoformat(),
+                "source_type": "treps_rates",
+            }]
+        except Exception as e:
+            logger.warning(f"[CCIL] TREPS collection failed: {e}")
+            return []
 
     async def _collect_yield_curve(self) -> list[dict]:
         """Sovereign yield curve — various tenors."""
-        tenors = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "15Y", "20Y", "30Y"]
-        return [{
-            "indicator": f"gsec_yield_{t.lower()}",
-            "value": None,
-            "date": datetime.now(timezone.utc).isoformat(),
-            "source_type": "sovereign_yield_curve",
-            "metadata": {"tenor": t},
-        } for t in tenors]
+        try:
+            resp = await self._http.get(f"{self.FBIL_URL}/api/yield-curve")
+            if resp.status_code != 200:
+                logger.warning(f"[CCIL] Yield curve endpoint returned {resp.status_code}")
+                return []
+            data = resp.json()
+            records = []
+            tenors = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "15Y", "20Y", "30Y"]
+            for t in tenors:
+                value = data.get(t) or data.get(t.lower())
+                if value is not None:
+                    records.append({
+                        "indicator": f"gsec_yield_{t.lower()}",
+                        "value": float(value),
+                        "date": datetime.now(timezone.utc).isoformat(),
+                        "source_type": "sovereign_yield_curve",
+                        "metadata": {"tenor": t},
+                    })
+            return records
+        except Exception as e:
+            logger.warning(f"[CCIL] Yield curve collection failed: {e}")
+            return []
 
     async def _collect_money_market(self, dtype: str) -> list[dict]:
         """CP and CD rates."""
-        tenors = ["1M", "3M", "6M", "12M"]
         prefix = "cp" if dtype == "cp_rates" else "cd"
-        return [{
-            "indicator": f"{prefix}_rate_{t.lower()}",
-            "value": None,
-            "date": datetime.now(timezone.utc).isoformat(),
-            "source_type": dtype,
-            "metadata": {"tenor": t},
-        } for t in tenors]
+        try:
+            resp = await self._http.get(f"{self.FBIL_URL}/api/{prefix}-rates")
+            if resp.status_code != 200:
+                logger.warning(f"[CCIL] {prefix.upper()} rates endpoint returned {resp.status_code}")
+                return []
+            data = resp.json()
+            records = []
+            tenors = ["1M", "3M", "6M", "12M"]
+            for t in tenors:
+                value = data.get(t) or data.get(t.lower())
+                if value is not None:
+                    records.append({
+                        "indicator": f"{prefix}_rate_{t.lower()}",
+                        "value": float(value),
+                        "date": datetime.now(timezone.utc).isoformat(),
+                        "source_type": dtype,
+                        "metadata": {"tenor": t},
+                    })
+            return records
+        except Exception as e:
+            logger.warning(f"[CCIL] {prefix.upper()} rates collection failed: {e}")
+            return []
 
     async def parse(self, raw_data: list[dict]) -> pd.DataFrame:
         rows = []

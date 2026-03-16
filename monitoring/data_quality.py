@@ -15,9 +15,9 @@ class DataQualityChecker:
             "fred_api": 24,
             "rbi_dbie": 48,
             "rbi_circulars": 12,
-            "nse_bhavcopy": 24,
-            "bse_api": 24,
-            "ccil_rates": 12,
+            "nse_bhavcopy": 72,  # weekday-only schedule — needs weekend buffer
+            "bse_api": 72,      # weekday-only schedule — needs weekend buffer
+            "ccil_rates": 72,  # weekday-only schedule — 12h + weekend buffer
             "data_gov_in": 48,
             "sebi_circulars": 24,
             "world_bank": 168,  # Weekly

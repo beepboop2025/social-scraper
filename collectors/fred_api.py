@@ -28,10 +28,15 @@ class FredCollector(BaseCollector):
 
     async def collect(self) -> list[dict]:
         if not self.api_key:
-            raise SourceDownError(self.name, reason="FRED_API_KEY not set")
+            raise SourceDownError(self.name, url=self.BASE_URL, status_code=0)
 
         records = []
+        rate_limited = False
         for series_id in self.series_ids:
+            if rate_limited:
+                logger.warning(f"[FRED] Skipping {series_id} — rate limited")
+                continue
+
             resp = await self._http.get(
                 f"{self.BASE_URL}/series/observations",
                 params={
@@ -43,20 +48,30 @@ class FredCollector(BaseCollector):
                 },
             )
             if resp.status_code == 429:
-                raise RateLimitError(self.name, retry_after=60)
+                logger.warning(f"[FRED] Rate limited at {series_id}, keeping {len(records)} records collected so far")
+                rate_limited = True
+                continue
             if resp.status_code != 200:
                 logger.warning(f"[FRED] {series_id} returned {resp.status_code}")
                 continue
 
-            data = resp.json()
+            try:
+                data = resp.json()
+            except Exception:
+                logger.warning(f"[FRED] {series_id} returned non-JSON response")
+                continue
+
             for obs in data.get("observations", []):
-                if obs.get("value") != ".":
+                if obs.get("value") not in (".", "", None):
                     records.append({
                         "series_id": series_id,
                         "date": obs["date"],
                         "value": obs["value"],
                         "realtime_start": obs.get("realtime_start"),
                     })
+
+        if rate_limited and not records:
+            raise RateLimitError(self.name, retry_after=60)
 
         logger.info(f"[FRED] Collected {len(records)} observations across {len(self.series_ids)} series")
         return records
