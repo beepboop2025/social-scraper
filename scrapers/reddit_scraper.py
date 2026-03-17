@@ -80,7 +80,7 @@ class RedditScraper(BaseScraper):
             logger.warning(f"[Reddit] OAuth token request failed: {e}")
         return None
 
-    async def _fetch_json(self, url: str) -> dict:
+    async def _fetch_json(self, url: str) -> dict | list:
         """Fetch JSON from Reddit, using OAuth if available."""
         token = await self._get_oauth_token()
         if token:
@@ -93,6 +93,15 @@ class RedditScraper(BaseScraper):
             if not url.endswith(".json"):
                 url = url.rstrip("/") + ".json"
             resp = await self._http.get(url)
+
+        if resp.status_code == 429:
+            retry_after = int(resp.headers.get("Retry-After", 10))
+            logger.warning(f"[Reddit] Rate limited on {url}, backing off {retry_after}s")
+            await asyncio.sleep(retry_after)
+            raise httpx.HTTPStatusError(
+                f"429 rate limited", request=resp.request, response=resp
+            )
+
         resp.raise_for_status()
         try:
             return resp.json()
@@ -198,7 +207,7 @@ class RedditScraper(BaseScraper):
         url = post_url.rstrip("/") + f".json?limit={limit}"
         data = await self._fetch_json(url)
         items = []
-        if len(data) > 1:
+        if isinstance(data, list) and len(data) > 1:
             for child in data[1].get("data", {}).get("children", []):
                 item = self._parse_comment(child)
                 if item:

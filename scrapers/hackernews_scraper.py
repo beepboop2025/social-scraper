@@ -46,15 +46,28 @@ class HackerNewsScraper(BaseScraper):
 
     async def _get_item(self, item_id: int) -> Optional[dict]:
         async with self._sem:
-            resp = await self._http.get(f"{self.BASE_URL}/item/{item_id}.json")
-            if resp.status_code == 200:
+            try:
+                resp = await self._http.get(f"{self.BASE_URL}/item/{item_id}.json")
+            except httpx.HTTPError as e:
+                logger.warning(f"[HN] Network error fetching item {item_id}: {e}")
+                return None
+            if resp.status_code != 200:
+                logger.debug(f"[HN] Non-200 status ({resp.status_code}) for item {item_id}")
+                return None
+            try:
                 return resp.json()
-            return None
+            except Exception:
+                logger.warning(f"[HN] Malformed JSON for item {item_id}")
+                return None
 
     async def _get_stories(self, category: str = "topstories", limit: int = 100) -> list[int]:
         resp = await self._http.get(f"{self.BASE_URL}/{category}.json")
         resp.raise_for_status()
-        ids = resp.json()
+        try:
+            ids = resp.json()
+        except Exception:
+            logger.error(f"[HN] Failed to parse story list JSON for {category}")
+            return []
         return ids[:limit] if ids else []
 
     def _parse_story(self, item: dict) -> ScrapedItem:
