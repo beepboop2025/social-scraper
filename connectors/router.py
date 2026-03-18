@@ -104,7 +104,9 @@ class DataRouter:
                 data["_routed_at"] = datetime.now(timezone.utc).isoformat()
                 batch.append(data)
 
-            publish_batch(self.kafka_producer, batch, f"routed-{destination}")
+            await asyncio.to_thread(
+                publish_batch, self.kafka_producer, batch, f"routed-{destination}"
+            )
             self._stats["kafka_published"] += len(items)
         except Exception as e:
             logger.warning(f"[Router] Kafka publish failed: {e}")
@@ -149,10 +151,20 @@ class DataRouter:
                     self._stats["errors"] += 1
                 else:
                     results[name] = result
+                    # Only count items if push actually succeeded
                     if name == "dragonscope":
-                        self._stats["dragonscope_pushed"] += len(dragonscope_items)
+                        # DragonScope returns {cat: {success, count}}
+                        push_ok = isinstance(result, dict) and all(
+                            v.get("success", True)
+                            for v in result.values()
+                            if isinstance(v, dict)
+                        )
+                        if push_ok:
+                            self._stats["dragonscope_pushed"] += len(dragonscope_items)
                     elif name == "liquifi":
-                        self._stats["liquifi_pushed"] += len(liquifi_items)
+                        # LiquiFi returns {success, pushed, filtered_out}
+                        if isinstance(result, dict) and result.get("success", False):
+                            self._stats["liquifi_pushed"] += result.get("pushed", 0)
 
         # Publish all to Kafka for persistence
         await self._publish_to_kafka(items, "all")
@@ -169,6 +181,11 @@ class DataRouter:
             "results": results,
             "stats": self._stats,
         }
+
+    async def close(self):
+        """Close underlying connector resources."""
+        await self.dragonscope.close()
+        await self.liquifi.close()
 
     @property
     def stats(self) -> dict:

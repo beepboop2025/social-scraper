@@ -163,14 +163,17 @@ class DragonScopeConnector:
                 "scrape_source": "social_scraper",
             }
 
-    async def push_via_redis(self, items: list[ScrapedItem], category: str) -> bool:
+    async def push_via_redis(
+        self, items: list[ScrapedItem], category: str, payload: dict = None
+    ) -> bool:
         """Push data directly into DragonScope's Redis cache."""
         r = await self._get_redis()
         if not r:
             return False
 
         try:
-            payload = self._transform_for_dragonscope(items, category)
+            if payload is None:
+                payload = self._transform_for_dragonscope(items, category)
             payload_json = json.dumps(payload, default=str)
 
             # Write to DragonScope's cache key
@@ -191,10 +194,13 @@ class DragonScopeConnector:
             logger.error(f"[DragonScope] Redis push failed: {e}")
             return False
 
-    async def push_via_api(self, items: list[ScrapedItem], category: str) -> bool:
+    async def push_via_api(
+        self, items: list[ScrapedItem], category: str, payload: dict = None
+    ) -> bool:
         """Push data via DragonScope's API (fallback)."""
         try:
-            payload = self._transform_for_dragonscope(items, category)
+            if payload is None:
+                payload = self._transform_for_dragonscope(items, category)
             headers = {"Content-Type": "application/json"}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
@@ -229,10 +235,11 @@ class DragonScopeConnector:
 
         results = {}
         for category, cat_items in by_category.items():
-            # Try Redis first, fall back to API
-            success = await self.push_via_redis(cat_items, category)
+            # Transform once, reuse payload for both Redis and API paths
+            payload = self._transform_for_dragonscope(cat_items, category)
+            success = await self.push_via_redis(cat_items, category, payload)
             if not success:
-                success = await self.push_via_api(cat_items, category)
+                success = await self.push_via_api(cat_items, category, payload)
             results[category] = {"success": success, "count": len(cat_items)}
 
         return results

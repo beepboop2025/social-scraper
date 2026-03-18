@@ -102,6 +102,7 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
     finally:
         if scraper and hasattr(scraper, "close"):
             await scraper.close()
+        await router.close()
 
 
 async def _store_scraped_items(items):
@@ -183,6 +184,8 @@ async def _scrape_twitter_impl():
             return {"scraper": "twitter", "items_scraped": len(all_items), "routing": routing}
     except ImportError:
         logger.debug("[Twitter] twitter_scraper not available")
+    finally:
+        await router.close()
     return {"scraper": "twitter", "items_scraped": 0}
 
 

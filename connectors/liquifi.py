@@ -135,7 +135,11 @@ class LiquiFiConnector:
         rate_signals = []
 
         for item in items:
-            relevance, categories = self.score_treasury_relevance(item)
+            # Use cached scores from push() if available, avoid recomputing
+            relevance = item.unified.raw_metadata.get("treasury_relevance")
+            categories = item.unified.raw_metadata.get("treasury_categories")
+            if relevance is None:
+                relevance, categories = self.score_treasury_relevance(item)
 
             news_entry = {
                 "id": item.unified.id,
