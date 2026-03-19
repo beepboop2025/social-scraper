@@ -42,6 +42,10 @@ def _parse_cron(expr: str) -> crontab:
     """Parse a standard cron expression into a Celery crontab."""
     parts = expr.strip().split()
     if len(parts) != 5:
+        logger.error(
+            f"Invalid cron expression '{expr}' (expected 5 fields, got {len(parts)}). "
+            f"Falling back to hourly."
+        )
         return crontab(minute="0")
 
     return crontab(

@@ -615,27 +615,31 @@ def push_stats():
         import redis
         r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
 
-        stats_keys = list(r.scan_iter("health:*"))
-        health = {}
-        for key in stats_keys:
-            data = r.get(key)
-            if data:
-                health[key.replace("health:", "")] = json.loads(data)
+        try:
+            stats_keys = list(r.scan_iter("health:*"))
+            health = {}
+            for key in stats_keys:
+                data = r.get(key)
+                if data:
+                    health[key.replace("health:", "")] = json.loads(data)
 
-        summary = {
-            "sources": health,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+            summary = {
+                "sources": health,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        finally:
+            r.close()
 
         # Push to DragonScope
         try:
             ds = redis.from_url(os.getenv("DRAGONSCOPE_REDIS_URL", "redis://localhost:6379/1"), decode_responses=True)
-            ds.set("market:scraper_stats", json.dumps(summary, default=str), ex=1200)
-            ds.close()
+            try:
+                ds.set("market:scraper_stats", json.dumps(summary, default=str), ex=1200)
+            finally:
+                ds.close()
         except Exception:
             pass
 
-        r.close()
         return summary
     except Exception as e:
         return {"error": str(e)}
