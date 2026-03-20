@@ -42,9 +42,16 @@ class DataQualityChecker:
     def run_all_checks(self) -> list[dict]:
         """Run all quality checks, return list of issues."""
         issues = []
-        issues.extend(self.check_staleness())
-        issues.extend(self.check_empty_fields())
-        issues.extend(self.check_duplicate_rate())
+        for check in [self.check_staleness, self.check_empty_fields, self.check_duplicate_rate]:
+            try:
+                issues.extend(check())
+            except Exception as e:
+                logger.error(f"Data quality check {check.__name__} failed: {e}")
+                issues.append({
+                    "type": "check_error",
+                    "severity": "critical",
+                    "message": f"{check.__name__} failed: {e}",
+                })
         return issues
 
     def check_staleness(self) -> list[dict]:

@@ -37,15 +37,15 @@ class TelegramAlertBot:
             return False
 
     @staticmethod
-    def _escape_markdown(text: str) -> str:
-        """Escape Markdown special characters for Telegram."""
-        for ch in r"\_*[]()~`>#+-=|{}.!":
+    def _escape_markdown_v1(text: str) -> str:
+        """Escape Markdown v1 special characters for Telegram."""
+        for ch in r"_*`[":
             text = text.replace(ch, f"\\{ch}")
         return text
 
     def send_alert(self, source: str, error: str, consecutive_failures: int = 1):
         severity = "WARNING" if consecutive_failures < 5 else "CRITICAL"
-        safe_error = self._escape_markdown(error[:500])
+        safe_error = self._escape_markdown_v1(error[:500])
         msg = (
             f"*{severity}* — EconScraper\n\n"
             f"Source: `{source}`\n"

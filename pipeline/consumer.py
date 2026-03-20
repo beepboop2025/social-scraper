@@ -21,6 +21,17 @@ GROUP_ID = "scraper-enrichment"
 _shutdown_requested = False
 
 
+def _safe_parse_datetime(value: str | None) -> datetime:
+    """Parse a datetime string, returning utcnow on failure."""
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        return datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        logger.warning(f"[Consumer] Unparseable datetime '{value}', using now()")
+        return datetime.now(timezone.utc)
+
+
 def create_consumer() -> KafkaConsumer:
     return KafkaConsumer(
         TOPIC_RAW,
@@ -98,7 +109,7 @@ def run_consumer():
                         hashtags=enriched.get("hashtags", []),
                         mentions=enriched.get("mentions", []),
                         batch_id=enriched.get("batch_id"),
-                        created_at=datetime.fromisoformat(enriched["created_at"]) if enriched.get("created_at") else datetime.now(timezone.utc),
+                        created_at=_safe_parse_datetime(enriched.get("created_at")),
                         scraped_at=datetime.now(timezone.utc),
                     )
                     db.merge(post)
@@ -109,8 +120,14 @@ def run_consumer():
                 # Commit offset only after successful processing + storage
                 consumer.commit()
 
+            except KeyError as e:
+                # Missing required field — skip this message to avoid poison pill
+                logger.error(f"[Consumer] Skipping message with missing field {e}: {message.key}")
+                consumer.commit()
             except Exception as e:
-                logger.error(f"[Consumer] Error processing message: {e}")
+                logger.error(f"[Consumer] Error processing message: {e}", exc_info=True)
+                # Commit offset to prevent poison pill — the message is logged for investigation
+                consumer.commit()
     finally:
         producer.flush()
         consumer.close()

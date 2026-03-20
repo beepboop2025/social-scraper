@@ -1,9 +1,12 @@
 """Kafka producer — publishes scraped items to raw-posts topic."""
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from kafka import KafkaProducer
+
+logger = logging.getLogger(__name__)
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC_RAW = "raw-posts"
@@ -36,4 +39,4 @@ def publish_batch(producer: KafkaProducer, items: list[dict], platform: str):
     for item in items:
         publish_scraped_item(producer, item, platform)
     producer.flush()
-    print(f"[Producer] Published {len(items)} items to {TOPIC_RAW}")
+    logger.info(f"[Producer] Published {len(items)} items to {TOPIC_RAW}")
