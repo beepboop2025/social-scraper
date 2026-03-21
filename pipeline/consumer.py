@@ -26,14 +26,16 @@ def _send_to_dlq(message, error: str):
     try:
         from pipeline.consumer_groups import ConsumerGroupManager
         mgr = ConsumerGroupManager()
-        key = message.key.decode("utf-8") if message.key else "unknown"
-        mgr.send_to_dlq(
-            original_topic=TOPIC_RAW,
-            key=key,
-            value=message.value if isinstance(message.value, dict) else {},
-            error=error,
-        )
-        mgr.close()
+        try:
+            key = message.key.decode("utf-8") if message.key else "unknown"
+            mgr.send_to_dlq(
+                original_topic=TOPIC_RAW,
+                key=key,
+                value=message.value if isinstance(message.value, dict) else {},
+                error=error,
+            )
+        finally:
+            mgr.close()
     except Exception as e:
         logger.debug(f"[Consumer] DLQ send failed: {e}")
 
@@ -56,6 +58,7 @@ def create_consumer() -> KafkaConsumer:
         group_id=GROUP_ID,
         auto_offset_reset="earliest",
         enable_auto_commit=False,
+        consumer_timeout_ms=5000,  # Yield control every 5s so shutdown flag is checked
         value_deserializer=lambda m: json.loads(m.decode("utf-8")),
     )
 
@@ -90,62 +93,65 @@ def run_consumer():
     logger.info(f"[Consumer] Listening on {TOPIC_RAW}...")
 
     try:
-        for message in consumer:
-            if _shutdown_requested:
-                break
-            try:
-                envelope = message.value
-                platform = envelope.get("platform", "unknown")
-                raw_item = envelope.get("item", {})
-
-                # Enrich
-                enriched = enrich_item(raw_item)
-
-                # Publish to enriched topic
-                key = f"{platform}:{enriched.get('id', 'unknown')}"
-                producer.send(TOPIC_ENRICHED, key=key, value={
-                    "platform": platform,
-                    "item": enriched,
-                    "enriched_at": datetime.now(timezone.utc).isoformat(),
-                })
-                producer.flush()
-
-                # Store in PostgreSQL
-                db = SessionLocal()
+        while not _shutdown_requested:
+            # consumer_timeout_ms causes StopIteration after 5s of no messages,
+            # giving us a chance to check the shutdown flag
+            for message in consumer:
+                if _shutdown_requested:
+                    break
                 try:
-                    post = ScrapedPost(
-                        platform=platform,
-                        platform_id=str(enriched.get("id", "")),
-                        text=enriched.get("text", ""),
-                        author_username=enriched.get("author_username"),
-                        author_display_name=enriched.get("author_display_name", "Unknown"),
-                        likes=enriched.get("likes", 0),
-                        replies=enriched.get("replies", 0),
-                        reposts=enriched.get("reposts", 0),
-                        views=enriched.get("views"),
-                        hashtags=enriched.get("hashtags", []),
-                        mentions=enriched.get("mentions", []),
-                        batch_id=enriched.get("batch_id"),
-                        created_at=_safe_parse_datetime(enriched.get("created_at")),
-                        scraped_at=datetime.now(timezone.utc),
-                    )
-                    db.merge(post)
-                    db.commit()
-                finally:
-                    db.close()
+                    envelope = message.value
+                    platform = envelope.get("platform", "unknown")
+                    raw_item = envelope.get("item", {})
 
-                # Commit offset only after successful processing + storage
-                consumer.commit()
+                    # Enrich
+                    enriched = enrich_item(raw_item)
 
-            except KeyError as e:
-                # Missing required field — send to DLQ instead of silently dropping
-                logger.error(f"[Consumer] Skipping message with missing field {e}: {message.key}")
-                _send_to_dlq(message, str(e))
-                consumer.commit()
-            except Exception as e:
-                logger.error(f"[Consumer] Error processing message: {e}", exc_info=True)
-                _send_to_dlq(message, str(e))
-                consumer.commit()
+                    # Publish to enriched topic
+                    key = f"{platform}:{enriched.get('id', 'unknown')}"
+                    producer.send(TOPIC_ENRICHED, key=key, value={
+                        "platform": platform,
+                        "item": enriched,
+                        "enriched_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    producer.flush()
+
+                    # Store in PostgreSQL
+                    db = SessionLocal()
+                    try:
+                        post = ScrapedPost(
+                            platform=platform,
+                            platform_id=str(enriched.get("id", "")),
+                            text=enriched.get("text", ""),
+                            author_username=enriched.get("author_username"),
+                            author_display_name=enriched.get("author_display_name", "Unknown"),
+                            likes=enriched.get("likes", 0),
+                            replies=enriched.get("replies", 0),
+                            reposts=enriched.get("reposts", 0),
+                            views=enriched.get("views"),
+                            hashtags=enriched.get("hashtags", []),
+                            mentions=enriched.get("mentions", []),
+                            batch_id=enriched.get("batch_id"),
+                            created_at=_safe_parse_datetime(enriched.get("created_at")),
+                            scraped_at=datetime.now(timezone.utc),
+                        )
+                        db.merge(post)
+                        db.commit()
+                    finally:
+                        db.close()
+
+                    # Commit offset only after successful processing + storage
+                    consumer.commit()
+
+                except KeyError as e:
+                    # Missing required field — send to DLQ instead of silently dropping
+                    logger.error(f"[Consumer] Skipping message with missing field {e}: {message.key}")
+                    _send_to_dlq(message, str(e))
+                    consumer.commit()
+                except Exception as e:
+                    logger.error(f"[Consumer] Error processing message: {e}", exc_info=True)
+                    _send_to_dlq(message, str(e))
+                    consumer.commit()
     finally:
         producer.flush()
         consumer.close()

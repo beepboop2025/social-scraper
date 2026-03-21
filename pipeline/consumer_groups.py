@@ -99,6 +99,7 @@ class ConsumerGroupManager:
         result = {}
 
         for gid, config in groups.items():
+            consumer = None
             try:
                 consumer = KafkaConsumer(
                     bootstrap_servers=self.bootstrap_servers,
@@ -130,11 +131,16 @@ class ConsumerGroupManager:
 
                     group_lag["topics"][topic] = topic_lag
 
-                consumer.close()
                 result[gid] = group_lag
 
             except Exception as e:
                 result[gid] = {"error": str(e), "total_lag": -1}
+            finally:
+                if consumer:
+                    try:
+                        consumer.close()
+                    except Exception:
+                        pass
 
         return result
 
@@ -253,7 +259,7 @@ class ConsumerGroupManager:
                 g.get("total_lag", 0) for g in lag_info.values() if isinstance(g, dict)
             )
 
-            # DLQ depth
+            # DLQ depth — subtract beginning offsets from end offsets to get actual message count
             dlq_depth = 0
             try:
                 consumer = KafkaConsumer(
@@ -261,12 +267,17 @@ class ConsumerGroupManager:
                     group_id="dlq-health",
                     enable_auto_commit=False,
                 )
-                partitions = consumer.partitions_for_topic(TOPIC_DLQ) or set()
-                if partitions:
-                    tps = [TopicPartition(TOPIC_DLQ, p) for p in partitions]
-                    end_offsets = consumer.end_offsets(tps)
-                    dlq_depth = sum(end_offsets.values())
-                consumer.close()
+                try:
+                    partitions = consumer.partitions_for_topic(TOPIC_DLQ) or set()
+                    if partitions:
+                        tps = [TopicPartition(TOPIC_DLQ, p) for p in partitions]
+                        end_offsets = consumer.end_offsets(tps)
+                        begin_offsets = consumer.beginning_offsets(tps)
+                        dlq_depth = sum(
+                            end_offsets.get(tp, 0) - begin_offsets.get(tp, 0) for tp in tps
+                        )
+                finally:
+                    consumer.close()
             except Exception:
                 pass
 

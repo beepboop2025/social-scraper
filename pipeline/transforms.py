@@ -1,5 +1,6 @@
 """Data transforms applied in the pipeline between raw and enriched stages."""
 
+import logging
 import re
 from datetime import datetime, timezone
 
@@ -48,7 +49,7 @@ def enrich_item(raw_item: dict) -> dict:
     )
     item["enriched_at"] = datetime.now(timezone.utc).isoformat()
 
-    # Financial NLP enrichment
+    # Financial NLP enrichment — non-fatal: enrichment failure should not kill the message
     try:
         from analysis.financial_nlp import analyze_financial_content
         financial = analyze_financial_content(text)
@@ -60,6 +61,8 @@ def enrich_item(raw_item: dict) -> dict:
         item["has_financial_content"] = financial.get("has_financial_content", False)
     except ImportError:
         pass
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"[Transforms] Financial NLP failed, skipping: {e}")
 
     # Threat intel for dark web content
     if item.get("platform") == "darkweb":
@@ -69,5 +72,7 @@ def enrich_item(raw_item: dict) -> dict:
             item["threat_analysis"] = threat
         except ImportError:
             pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"[Transforms] Threat intel failed, skipping: {e}")
 
     return item

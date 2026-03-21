@@ -217,7 +217,7 @@ class MetricsRegistry:
         """Refresh queue depth gauges from Redis."""
         try:
             import redis
-            r = redis.from_url(REDIS_URL, decode_responses=True)
+            r = redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=5, socket_connect_timeout=5)
             for q in ["collectors", "processors", "routing", "health", "celery"]:
                 try:
                     depth = r.llen(q)
@@ -229,39 +229,51 @@ class MetricsRegistry:
             pass
 
     def update_from_db(self):
-        """Refresh metrics from database (called periodically)."""
+        """Refresh metrics from database (called periodically).
+
+        Uses a high-water mark to avoid double-counting: only articles/errors
+        with IDs greater than the last-seen ID are counted.
+        """
         try:
             from api.database import SessionLocal
-            from storage.models import Article, CollectionLog, SentimentScore
+            from storage.models import Article, CollectionLog
             from sqlalchemy import func
             from datetime import timedelta
 
             db = SessionLocal()
             try:
-                cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
-
-                # Articles by source (last hour)
+                # Articles by source — only count rows newer than our high-water mark
+                last_article_id = getattr(self, "_last_article_id", 0)
                 source_counts = (
-                    db.query(Article.source, func.count().label("count"))
-                    .filter(Article.collected_at >= cutoff)
+                    db.query(Article.source, func.count().label("count"), func.max(Article.id).label("max_id"))
+                    .filter(Article.id > last_article_id)
                     .group_by(Article.source)
                     .all()
                 )
-                for source, count in source_counts:
+                max_seen = last_article_id
+                for source, count, max_id in source_counts:
                     self.scraper_articles_total.inc(count, source=source)
+                    if max_id and max_id > max_seen:
+                        max_seen = max_id
+                self._last_article_id = max_seen
 
-                # Errors by source (last hour)
+                # Errors by source — same high-water mark approach
+                last_log_id = getattr(self, "_last_error_log_id", 0)
                 error_counts = (
-                    db.query(CollectionLog.source, func.count().label("count"))
+                    db.query(CollectionLog.source, func.count().label("count"), func.max(CollectionLog.id).label("max_id"))
                     .filter(
+                        CollectionLog.id > last_log_id,
                         CollectionLog.status == "failed",
-                        CollectionLog.run_at >= cutoff,
                     )
                     .group_by(CollectionLog.source)
                     .all()
                 )
-                for source, count in error_counts:
+                max_err = last_log_id
+                for source, count, max_id in error_counts:
                     self.scraper_errors_total.inc(count, source=source, error_type="task_failure")
+                    if max_id and max_id > max_err:
+                        max_err = max_id
+                self._last_error_log_id = max_err
             finally:
                 db.close()
         except Exception as e:
