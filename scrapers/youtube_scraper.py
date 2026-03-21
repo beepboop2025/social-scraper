@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -15,6 +16,9 @@ from models import (
 from scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
+
+# Quota exhaustion cooldown: 24 hours in seconds
+_QUOTA_COOLDOWN_SECONDS = 86400
 
 # Financial YouTube channels to monitor
 DEFAULT_CHANNELS = [
@@ -52,15 +56,64 @@ class YouTubeScraper(BaseScraper):
         super().__init__(rate_limit=50, **kwargs)
         self.api_key = api_key
         self._http = httpx.AsyncClient(timeout=30)
+        self._quota_exhausted_at: float = 0.0  # timestamp when quota was exhausted
 
     async def close(self):
         """Close the HTTP client."""
         await self._http.aclose()
 
+    def _is_quota_exhausted(self) -> bool:
+        """Check if we're in a quota cooldown period."""
+        if self._quota_exhausted_at == 0.0:
+            return False
+        elapsed = time.monotonic() - self._quota_exhausted_at
+        if elapsed < _QUOTA_COOLDOWN_SECONDS:
+            return True
+        # Cooldown expired, reset
+        self._quota_exhausted_at = 0.0
+        return False
+
     async def _get(self, endpoint: str, params: dict) -> dict:
+        if self._is_quota_exhausted():
+            remaining = _QUOTA_COOLDOWN_SECONDS - (time.monotonic() - self._quota_exhausted_at)
+            logger.warning(
+                "YouTube API quota exhausted",
+                extra={
+                    "source": self.name,
+                    "cooldown_remaining_hours": round(remaining / 3600, 1),
+                },
+            )
+            return {"items": []}
+
         if self.api_key:
             params["key"] = self.api_key
         resp = await self._http.get(f"{self.BASE_URL}/{endpoint}", params=params)
+
+        # Detect quota exhaustion (403 with specific reason)
+        if resp.status_code == 403:
+            try:
+                error_data = resp.json()
+                errors = error_data.get("error", {}).get("errors", [])
+                is_quota = any(
+                    e.get("reason") in ("quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded")
+                    for e in errors
+                )
+            except Exception:
+                is_quota = True  # Assume quota if we can't parse the error
+
+            if is_quota:
+                self._quota_exhausted_at = time.monotonic()
+                logger.warning(
+                    "YouTube API quota exhausted - entering 24h cooldown. "
+                    "Consider increasing quota or using RSS fallback for channels.",
+                    extra={
+                        "source": self.name,
+                        "error_type": "QuotaExhausted",
+                        "endpoint": endpoint,
+                    },
+                )
+                return {"items": []}
+
         resp.raise_for_status()
         return resp.json()
 
@@ -183,10 +236,67 @@ class YouTubeScraper(BaseScraper):
         items = [self._parse_video(v) for v in details.get("items", [])]
         return items[:limit]
 
+    async def _scrape_channel_rss_fallback(self, channel_id: str, limit: int = 50) -> list[ScrapedItem]:
+        """Fallback: scrape channel via YouTube RSS feed (no quota cost)."""
+        try:
+            rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+            resp = await self._http.get(rss_url)
+            if resp.status_code != 200:
+                return []
+
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(resp.text)
+            ns = {"atom": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
+
+            items = []
+            for entry in root.findall("atom:entry", ns)[:limit]:
+                video_id = entry.find("yt:videoId", ns)
+                title_el = entry.find("atom:title", ns)
+                published_el = entry.find("atom:published", ns)
+                author_el = entry.find("atom:author/atom:name", ns)
+
+                vid = video_id.text if video_id is not None else ""
+                title = title_el.text if title_el is not None else ""
+                author_name = author_el.text if author_el is not None else "Unknown"
+
+                try:
+                    published = published_el.text if published_el is not None else ""
+                    created = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    created = datetime.now(timezone.utc)
+
+                content = ScrapedContent(
+                    id=self.make_id("youtube", vid),
+                    platform=Platform.YOUTUBE,
+                    content_type=ContentType.POST,
+                    text=title,
+                    author=AuthorInfo(
+                        username=channel_id,
+                        display_name=author_name,
+                        id=channel_id,
+                    ),
+                    engagement=EngagementMetrics(),
+                    created_at=created,
+                    source_url=f"https://www.youtube.com/watch?v={vid}",
+                    source_channel=author_name,
+                    raw_metadata={"video_id": vid, "source": "rss_fallback"},
+                )
+                items.append(ScrapedItem(unified=content))
+
+            logger.info(f"[YouTube] RSS fallback: got {len(items)} videos for channel {channel_id}")
+            return items
+        except Exception as e:
+            logger.warning(
+                "YouTube RSS fallback failed",
+                extra={"source": self.name, "channel_id": channel_id, "error_type": type(e).__name__},
+            )
+            return []
+
     async def scrape_channel(self, channel_id: str, limit: int = 50) -> list[ScrapedItem]:
         """Scrape latest videos from a YouTube channel."""
-        if not self.api_key:
-            return []
+        if not self.api_key or self._is_quota_exhausted():
+            logger.info(f"[YouTube] Using RSS fallback for channel {channel_id}")
+            return await self._scrape_channel_rss_fallback(channel_id, limit)
 
         data = await self._get("search", {
             "part": "snippet",
@@ -195,6 +305,12 @@ class YouTubeScraper(BaseScraper):
             "order": "date",
             "maxResults": min(limit, 50),
         })
+
+        # If API returned empty (possibly due to quota), try RSS fallback
+        if not data.get("items"):
+            if self._is_quota_exhausted():
+                return await self._scrape_channel_rss_fallback(channel_id, limit)
+            return []
 
         video_ids = [
             item["id"]["videoId"]

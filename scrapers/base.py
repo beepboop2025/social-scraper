@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import AsyncIterator, Optional
 
 from models import Platform, ScrapedContent, ScrapedItem
+from core.http_pool import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,13 @@ class BaseScraper(ABC):
             "uptime_start": datetime.now(timezone.utc),
         }
 
+    async def get_client(self):
+        """Get a shared HTTP client from the connection pool.
+
+        Scrapers should use this instead of creating their own httpx.AsyncClient.
+        """
+        return await get_http_client()
+
     @abstractmethod
     async def scrape(self, query: str, limit: int = 100) -> list[ScrapedItem]:
         """Scrape content matching the query. Must be implemented by subclasses."""
@@ -95,7 +103,15 @@ class BaseScraper(ABC):
             except Exception as e:
                 self._stats["total_errors"] += 1
                 logger.warning(
-                    f"[{self.name}] Attempt {attempt}/{self.max_retries} failed: {e}"
+                    "Scrape failed",
+                    extra={
+                        "source": self.name,
+                        "query": query,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "retry": attempt,
+                        "max_retries": self.max_retries,
+                    },
                 )
                 if attempt < self.max_retries:
                     await asyncio.sleep(self.retry_delay * attempt)
@@ -113,7 +129,15 @@ class BaseScraper(ABC):
             except Exception as e:
                 self._stats["total_errors"] += 1
                 logger.warning(
-                    f"[{self.name}] Channel scrape attempt {attempt}/{self.max_retries} failed: {e}"
+                    "Channel scrape failed",
+                    extra={
+                        "source": self.name,
+                        "channel_id": channel_id,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "retry": attempt,
+                        "max_retries": self.max_retries,
+                    },
                 )
                 if attempt < self.max_retries:
                     await asyncio.sleep(self.retry_delay * attempt)

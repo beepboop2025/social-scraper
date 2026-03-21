@@ -6,6 +6,7 @@ Classifies text as positive/negative/neutral with financial context:
 """
 
 import logging
+import math
 import re
 
 from core.base_processor import BaseProcessor
@@ -83,25 +84,32 @@ class SentimentAnalyzer(BaseProcessor):
             "model": self.model_name if self._pipeline != "vader" else "vader",
         }
 
+    @staticmethod
+    def _sanitize_score(score: float) -> float:
+        """Guard against NaN and infinity in sentiment scores."""
+        if math.isnan(score) or math.isinf(score):
+            return 0.0
+        return max(-1.0, min(1.0, score))
+
     def _analyze(self, text: str) -> float:
         """Return sentiment score in [-1, 1]."""
         pipeline = self._get_pipeline()
 
         if pipeline == "vader":
-            return self._vader_score(text)
+            return self._sanitize_score(self._vader_score(text))
 
         try:
             result = pipeline(text[:512])[0]
             label = result["label"].lower()
             score = result["score"]
             if label == "negative":
-                return -score
+                return self._sanitize_score(-score)
             elif label == "positive":
-                return score
+                return self._sanitize_score(score)
             return 0.0
         except Exception as e:
             logger.debug(f"[Sentiment] FinBERT failed: {e}")
-            return self._vader_score(text)
+            return self._sanitize_score(self._vader_score(text))
 
     def _vader_score(self, text: str) -> float:
         if self._vader is None:
@@ -111,7 +119,8 @@ class SentimentAnalyzer(BaseProcessor):
                 self._vader = SentimentIntensityAnalyzer()
             except ImportError:
                 return 0.0
-        return self._vader.polarity_scores(text)["compound"]
+        score = self._vader.polarity_scores(text)["compound"]
+        return self._sanitize_score(score)
 
     def _detect_policy_direction(self, text: str) -> str:
         text_lower = text.lower()

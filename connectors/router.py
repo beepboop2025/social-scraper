@@ -183,9 +183,30 @@ class DataRouter:
         }
 
     async def close(self):
-        """Close underlying connector resources."""
-        await self.dragonscope.close()
-        await self.liquifi.close()
+        """Close underlying connector resources including Kafka producer."""
+        try:
+            await self.dragonscope.close()
+        except Exception as e:
+            logger.debug(f"[Router] DragonScope close error: {e}")
+        try:
+            await self.liquifi.close()
+        except Exception as e:
+            logger.debug(f"[Router] LiquiFi close error: {e}")
+        if self.kafka_producer is not None:
+            try:
+                self.kafka_producer.flush(timeout=5)
+                self.kafka_producer.close(timeout=5)
+                logger.debug("[Router] Kafka producer closed")
+            except Exception as e:
+                logger.debug(f"[Router] Kafka producer close error: {e}")
+            self.kafka_producer = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+        return False
 
     @property
     def stats(self) -> dict:

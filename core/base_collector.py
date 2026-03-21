@@ -23,6 +23,7 @@ from typing import Optional
 import httpx
 import pandas as pd
 
+from core.circuit_breaker import CircuitBreaker
 from core.exceptions import (
     ParseError, RateLimitError, SchemaChangedError, SourceDownError,
 )
@@ -61,6 +62,11 @@ class BaseCollector(ABC):
             headers={"User-Agent": "EconScraper/4.0"},
             follow_redirects=True,
         )
+        self._circuit_breaker = CircuitBreaker(
+            name=self.name,
+            failure_threshold=config.get("circuit_breaker_threshold", 5),
+            cooldown_seconds=config.get("circuit_breaker_cooldown", 300),
+        )
 
     async def close(self):
         """Close the HTTP client."""
@@ -91,6 +97,19 @@ class BaseCollector(ABC):
         Returns a summary dict with status, records_collected, duration.
         """
         start = time.monotonic()
+
+        # Circuit breaker check — skip collection if circuit is open
+        if not self._circuit_breaker.can_execute():
+            logger.warning(
+                f"[{self.name}] Circuit breaker OPEN — skipping collection "
+                f"({self._circuit_breaker.failure_count} consecutive failures)"
+            )
+            self._report_health("circuit_open", "Circuit breaker is open")
+            return self._result(
+                "circuit_open", 0, time.monotonic() - start,
+                f"Circuit breaker open after {self._circuit_breaker.failure_count} failures"
+            )
+
         self._report_health("running")
 
         try:
@@ -117,6 +136,7 @@ class BaseCollector(ABC):
 
             # 6. Success
             self._consecutive_failures = 0
+            self._circuit_breaker.record_success()
             duration = time.monotonic() - start
             self._report_health("success", f"{records} records in {duration:.1f}s")
             self._log_collection("success", records, duration)
@@ -126,6 +146,7 @@ class BaseCollector(ABC):
 
         except (SourceDownError, RateLimitError) as e:
             self._consecutive_failures += 1
+            self._circuit_breaker.record_failure()
             duration = time.monotonic() - start
             self._report_health("failed", str(e))
             self._log_collection("failed", 0, duration, str(e))
@@ -135,6 +156,7 @@ class BaseCollector(ABC):
 
         except (SchemaChangedError, ParseError) as e:
             self._consecutive_failures += 1
+            self._circuit_breaker.record_failure()
             duration = time.monotonic() - start
             self._report_health("failed", str(e))
             self._log_collection("failed", 0, duration, str(e))
@@ -144,6 +166,7 @@ class BaseCollector(ABC):
 
         except Exception as e:
             self._consecutive_failures += 1
+            self._circuit_breaker.record_failure()
             duration = time.monotonic() - start
             self._report_health("failed", str(e))
             self._log_collection("failed", 0, duration, str(e))
@@ -172,8 +195,15 @@ class BaseCollector(ABC):
                 if attempt < self.retry_count:
                     delay = self.retry_backoff ** attempt
                     logger.warning(
-                        f"[{self.name}] Attempt {attempt}/{self.retry_count} failed: {e}. "
-                        f"Retrying in {delay:.1f}s"
+                        "Collection attempt failed",
+                        extra={
+                            "source": self.name,
+                            "error_type": type(e).__name__,
+                            "error": str(e),
+                            "retry": attempt,
+                            "max_retries": self.retry_count,
+                            "next_delay": round(delay, 1),
+                        },
                     )
                     await asyncio.sleep(delay)
         raise last_error

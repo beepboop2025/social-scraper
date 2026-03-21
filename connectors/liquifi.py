@@ -279,7 +279,20 @@ class LiquiFiConnector:
 
     async def close(self):
         """Close HTTP and Redis connections."""
-        await self._http.aclose()
+        try:
+            await self._http.aclose()
+        except Exception as e:
+            logger.debug(f"[LiquiFi] HTTP close error: {e}")
         if self._redis:
-            await self._redis.close()
+            try:
+                await self._redis.close()
+            except Exception as e:
+                logger.debug(f"[LiquiFi] Redis close error: {e}")
             self._redis = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+        return False

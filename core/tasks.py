@@ -52,7 +52,10 @@ def run_collector(self, source_name: str):
         logger.info(f"[{source_name}] {result.get('status')}: {result.get('records_collected', 0)} records")
         return result
     except Exception as e:
-        logger.error(f"[{source_name}] Task failed: {e}")
+        logger.error(
+            "Collector task failed",
+            extra={"source": source_name, "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -79,17 +82,36 @@ def _make_router():
 
 
 async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
-    """Generic: create scraper → call method → route results → store locally."""
+    """Generic: create scraper → call method → dedup → route results → store locally."""
+    from core.dedup import URLDeduplicator
+
     router = _make_router()
+    dedup = URLDeduplicator()
     scraper = None
     try:
         scraper = scraper_factory()
         method = getattr(scraper, method_name)
         items = await method(**kwargs)
 
+        # Deduplicate by URL before routing
+        if items:
+            unique_items = []
+            for item in items:
+                url = getattr(item.unified, "source_url", None) or ""
+                if url and await dedup.is_seen(url):
+                    continue
+                unique_items.append(item)
+                if url:
+                    await dedup.mark_seen(url)
+            deduped_count = len(items) - len(unique_items)
+            items = unique_items
+        else:
+            deduped_count = 0
+
         result = {
             "scraper": getattr(scraper, "name", "unknown"),
             "items_scraped": len(items) if items else 0,
+            "deduped": deduped_count,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -103,6 +125,7 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
         if scraper and hasattr(scraper, "close"):
             await scraper.close()
         await router.close()
+        await dedup.close()
 
 
 async def _store_scraped_items(items):
@@ -151,7 +174,10 @@ def scrape_reddit(self):
             "scrape_all_financial", limit_per_sub=25,
         ))
     except Exception as e:
-        logger.error(f"[Reddit] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "reddit", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -160,20 +186,23 @@ def scrape_twitter(self):
     try:
         return _run_async(_scrape_twitter_impl())
     except Exception as e:
-        logger.error(f"[Twitter] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "twitter", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
 async def _scrape_twitter_impl():
     router = _make_router()
     try:
-        from twitter_scraper import TwitterScraper
+        from scrapers.twitter_scraper import TwitterScraper
         scraper = TwitterScraper()
         queries = os.getenv("TWITTER_QUERIES", "stock market,crypto,RBI,treasury,forex").split(",")
         all_items = []
         for q in queries:
             try:
-                items = await scraper.search(q.strip(), limit=20)
+                items = await scraper.search_tweets(q.strip(), count=20)
                 all_items.extend(items)
             except Exception:
                 pass
@@ -195,7 +224,10 @@ def scrape_hackernews(self):
         from scrapers.hackernews_scraper import HackerNewsScraper
         return _run_async(_scrape_and_route(HackerNewsScraper, "scrape_financial", limit=50))
     except Exception as e:
-        logger.error(f"[HN] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "hackernews", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -208,7 +240,10 @@ def scrape_youtube(self):
             "scrape_financial_content", limit_per_query=20,
         ))
     except Exception as e:
-        logger.error(f"[YouTube] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "youtube", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -228,7 +263,10 @@ def scrape_rss_financial(self):
             "scrape_all_feeds", limit_per_feed=10,
         ))
     except Exception as e:
-        logger.error(f"[RSS] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "rss", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -238,7 +276,10 @@ def scrape_central_banks(self):
         from scrapers.centralbank_scraper import CentralBankScraper
         return _run_async(_scrape_and_route(CentralBankScraper, "scrape_all"))
     except Exception as e:
-        logger.error(f"[CentralBank] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "centralbank", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -248,7 +289,10 @@ def scrape_sec(self):
         from scrapers.sec_scraper import SECScraper
         return _run_async(_scrape_and_route(SECScraper, "scrape_recent_filings", limit=30))
     except Exception as e:
-        logger.error(f"[SEC] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "sec", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -261,7 +305,10 @@ def scrape_github(self):
             "scrape_all_monitored", limit_per_repo=10,
         ))
     except Exception as e:
-        logger.error(f"[GitHub] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "github", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -271,7 +318,10 @@ def scrape_mastodon(self):
         from scrapers.mastodon_scraper import MastodonScraper
         return _run_async(_scrape_and_route(MastodonScraper, "scrape_financial_hashtags", limit_per_tag=20))
     except Exception as e:
-        logger.error(f"[Mastodon] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "mastodon", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -284,7 +334,10 @@ def scrape_darkweb(self):
             "scrape_all_threat_intel",
         ))
     except Exception as e:
-        logger.error(f"[DarkWeb] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "darkweb", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -294,7 +347,10 @@ def scrape_web(self):
         from scrapers.web_scraper import WebScraper
         return _run_async(_scrape_and_route(WebScraper, "scrape_all_targets", limit_per_site=10))
     except Exception as e:
-        logger.error(f"[Web] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "web", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
@@ -310,7 +366,10 @@ def scrape_discord(self):
             "scrape",
         ))
     except Exception as e:
-        logger.error(f"[Discord] {e}")
+        logger.error(
+            "Scrape task failed",
+            extra={"source": "discord", "error_type": type(e).__name__, "error": str(e)},
+        )
         self.retry(exc=e)
 
 
