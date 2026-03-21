@@ -29,6 +29,29 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+def _check_backpressure(scraper_name: str, is_critical: bool = False) -> bool:
+    """Check backpressure before running a scraper. Returns True if should skip."""
+    try:
+        from core.backpressure import get_backpressure_manager
+        bp = get_backpressure_manager()
+        return bp.should_skip_scraper(scraper_name, is_critical=is_critical)
+    except Exception:
+        return False
+
+
+def _record_metrics(scraper_name: str, items_count: int, duration: float, error: str = ""):
+    """Record scraper metrics for Prometheus export."""
+    try:
+        from monitoring.metrics import get_metrics_registry
+        registry = get_metrics_registry()
+        registry.scraper_articles_total.inc(items_count, source=scraper_name)
+        registry.scraper_duration_seconds.observe(duration, source=scraper_name)
+        if error:
+            registry.scraper_errors_total.inc(1, source=scraper_name, error_type=error)
+    except Exception:
+        pass
+
+
 # ══════════════════════════════════════════════════════════════
 # 1. COLLECTOR TASKS (YAML-driven via sources.yaml)
 # ══════════════════════════════════════════════════════════════
@@ -83,13 +106,17 @@ def _make_router():
 
 async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
     """Generic: create scraper → call method → dedup → route results → store locally."""
+    import time as _time
     from core.dedup import URLDeduplicator
 
+    start = _time.monotonic()
     router = _make_router()
     dedup = URLDeduplicator()
     scraper = None
+    scraper_name = "unknown"
     try:
         scraper = scraper_factory()
+        scraper_name = getattr(scraper, "name", "unknown")
         method = getattr(scraper, method_name)
         items = await method(**kwargs)
 
@@ -109,7 +136,7 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
             deduped_count = 0
 
         result = {
-            "scraper": getattr(scraper, "name", "unknown"),
+            "scraper": scraper_name,
             "items_scraped": len(items) if items else 0,
             "deduped": deduped_count,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -120,7 +147,27 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
             result["routing"] = routing
             await _store_scraped_items(items)
 
+            # Fire webhook for new articles if significant batch
+            if len(items) >= 5:
+                try:
+                    from core.webhooks import fire_event
+                    fire_event("new_article", {
+                        "source": scraper_name,
+                        "count": len(items),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
+
+        # Record metrics
+        duration = _time.monotonic() - start
+        _record_metrics(scraper_name, len(items) if items else 0, duration)
+
         return result
+    except Exception as e:
+        duration = _time.monotonic() - start
+        _record_metrics(scraper_name, 0, duration, error=type(e).__name__)
+        raise
     finally:
         if scraper and hasattr(scraper, "close"):
             await scraper.close()
@@ -164,6 +211,8 @@ async def _store_scraped_items(items):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scrape_reddit(self):
+    if _check_backpressure("reddit"):
+        return {"scraper": "reddit", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.reddit_scraper import RedditScraper
         return _run_async(_scrape_and_route(
@@ -183,6 +232,8 @@ def scrape_reddit(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scrape_twitter(self):
+    if _check_backpressure("twitter"):
+        return {"scraper": "twitter", "items_scraped": 0, "skipped": "backpressure"}
     try:
         return _run_async(_scrape_twitter_impl())
     except Exception as e:
@@ -220,6 +271,8 @@ async def _scrape_twitter_impl():
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scrape_hackernews(self):
+    if _check_backpressure("hackernews"):
+        return {"scraper": "hackernews", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.hackernews_scraper import HackerNewsScraper
         return _run_async(_scrape_and_route(HackerNewsScraper, "scrape_financial", limit=50))
@@ -233,6 +286,8 @@ def scrape_hackernews(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scrape_youtube(self):
+    if _check_backpressure("youtube"):
+        return {"scraper": "youtube", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.youtube_scraper import YouTubeScraper
         return _run_async(_scrape_and_route(
@@ -249,6 +304,8 @@ def scrape_youtube(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scrape_rss_financial(self):
+    if _check_backpressure("rss", is_critical=True):
+        return {"scraper": "rss", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.rss_scraper import RSSScraper
         critical_feeds = {
@@ -272,6 +329,8 @@ def scrape_rss_financial(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scrape_central_banks(self):
+    if _check_backpressure("centralbank", is_critical=True):
+        return {"scraper": "centralbank", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.centralbank_scraper import CentralBankScraper
         return _run_async(_scrape_and_route(CentralBankScraper, "scrape_all"))
@@ -285,6 +344,8 @@ def scrape_central_banks(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
 def scrape_sec(self):
+    if _check_backpressure("sec"):
+        return {"scraper": "sec", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.sec_scraper import SECScraper
         return _run_async(_scrape_and_route(SECScraper, "scrape_recent_filings", limit=30))
@@ -298,6 +359,8 @@ def scrape_sec(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
 def scrape_github(self):
+    if _check_backpressure("github"):
+        return {"scraper": "github", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.github_scraper import GitHubScraper
         return _run_async(_scrape_and_route(
@@ -314,6 +377,8 @@ def scrape_github(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
 def scrape_mastodon(self):
+    if _check_backpressure("mastodon"):
+        return {"scraper": "mastodon", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.mastodon_scraper import MastodonScraper
         return _run_async(_scrape_and_route(MastodonScraper, "scrape_financial_hashtags", limit_per_tag=20))
@@ -327,6 +392,8 @@ def scrape_mastodon(self):
 
 @app.task(bind=True, max_retries=2, default_retry_delay=120)
 def scrape_darkweb(self):
+    if _check_backpressure("darkweb"):
+        return {"scraper": "darkweb", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.darkweb_scraper import DarkWebScraper
         return _run_async(_scrape_and_route(
@@ -343,6 +410,8 @@ def scrape_darkweb(self):
 
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def scrape_web(self):
+    if _check_backpressure("web"):
+        return {"scraper": "web", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.web_scraper import WebScraper
         return _run_async(_scrape_and_route(WebScraper, "scrape_all_targets", limit_per_site=10))
@@ -356,6 +425,8 @@ def scrape_web(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
 def scrape_discord(self):
+    if _check_backpressure("discord"):
+        return {"scraper": "discord", "items_scraped": 0, "skipped": "backpressure"}
     bot_token = os.getenv("DISCORD_BOT_TOKEN")
     if not bot_token:
         return {"scraper": "discord", "items_scraped": 0, "note": "No bot token"}
@@ -379,8 +450,54 @@ def scrape_discord(self):
 
 @app.task
 def process_pipeline():
-    """Run the full NLP pipeline on unprocessed articles."""
+    """Run the full NLP pipeline on unprocessed articles, with quality scoring."""
+    import time as _time
     results = {}
+
+    # Quality scoring first — filter low-quality items before heavy NLP
+    try:
+        from processors.quality_scorer import QualityScorer
+        from api.database import SessionLocal
+        from storage.models import Article
+
+        scorer = QualityScorer()
+        db = SessionLocal()
+        try:
+            unprocessed = (
+                db.query(Article)
+                .filter(Article.is_processed == False)
+                .limit(200)
+                .all()
+            )
+            if unprocessed:
+                articles = [
+                    {
+                        "id": a.id, "title": a.title, "full_text": a.full_text,
+                        "author": a.author, "published_at": str(a.published_at) if a.published_at else None,
+                        "source": a.source, "url_hash": a.url_hash,
+                    }
+                    for a in unprocessed
+                ]
+                scored = scorer.score_batch(articles)
+                results["quality_scoring"] = {
+                    "total": len(scored),
+                    "passed": sum(1 for s in scored if s["quality_score"]["passed"]),
+                    "filtered": sum(1 for s in scored if not s["quality_score"]["passed"]),
+                    "avg_score": round(scorer.stats.get("avg_score", 0), 1),
+                }
+
+                # Record quality metrics
+                try:
+                    from monitoring.metrics import get_metrics_registry
+                    registry = get_metrics_registry()
+                    for s in scored:
+                        registry.articles_quality_score.observe(s["quality_score"]["total"])
+                except Exception:
+                    pass
+        finally:
+            db.close()
+    except Exception as e:
+        results["quality_scoring"] = {"error": str(e)}
 
     processors = [
         ("article_extractor", "processors.article_extractor", "ArticleExtractor"),
@@ -392,11 +509,21 @@ def process_pipeline():
     ]
 
     for name, module_path, class_name in processors:
+        start = _time.monotonic()
         try:
             import importlib
             mod = importlib.import_module(module_path)
             cls = getattr(mod, class_name)
             results[name] = cls().run()
+
+            # Record NLP processing duration
+            duration = _time.monotonic() - start
+            try:
+                from monitoring.metrics import get_metrics_registry
+                registry = get_metrics_registry()
+                registry.nlp_processing_duration_seconds.observe(duration, processor=name)
+            except Exception:
+                pass
         except Exception as e:
             results[name] = {"error": str(e)}
 
@@ -626,9 +753,27 @@ async def _route_collected_data():
 
 @app.task
 def health_check_all():
-    """Check health of all sources + destinations."""
+    """Check health of all sources + destinations. Fires source_down webhook if needed."""
     from core.health import system_status
-    return system_status()
+    status = system_status()
+
+    # Fire webhook for failed sources
+    failed_sources = [
+        name for name, info in status.get("sources", {}).items()
+        if info.get("status") == "failed"
+    ]
+    if failed_sources:
+        try:
+            from core.webhooks import fire_event
+            fire_event("source_down", {
+                "sources": failed_sources,
+                "overall_status": status.get("status"),
+                "timestamp": status.get("timestamp"),
+            })
+        except Exception:
+            pass
+
+    return status
 
 
 @app.task
@@ -638,6 +783,55 @@ def check_data_quality():
         from monitoring.data_quality import DataQualityChecker
         checker = DataQualityChecker()
         return checker.run_all_checks()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.task
+def run_retention_cleanup():
+    """Run daily data retention cleanup and archival."""
+    try:
+        from core.retention import RetentionManager
+        mgr = RetentionManager(
+            archive_to_s3=bool(os.getenv("MINIO_ENDPOINT")),
+        )
+        return mgr.run_all()
+    except Exception as e:
+        logger.error(f"[Retention] Cleanup failed: {e}")
+        return {"error": str(e)}
+
+
+@app.task
+def check_backpressure():
+    """Update backpressure state and fire source_down webhooks if needed."""
+    try:
+        from core.backpressure import get_backpressure_manager, PressureLevel
+        bp = get_backpressure_manager()
+        state = bp.check()
+
+        # Fire webhook if critical
+        if state.get("level") == PressureLevel.CRITICAL.value:
+            try:
+                from core.webhooks import fire_event
+                fire_event("anomaly_detected", {
+                    "type": "backpressure_critical",
+                    "total_depth": state.get("total_depth", 0),
+                    "celery_depth": state.get("celery_depth", 0),
+                    "kafka_lag": state.get("kafka_lag", 0),
+                })
+            except Exception:
+                pass
+
+        # Update Prometheus gauge
+        try:
+            from monitoring.metrics import get_metrics_registry
+            registry = get_metrics_registry()
+            level_map = {"normal": 0, "warn": 1, "critical": 2}
+            registry.backpressure_level.set(level_map.get(state.get("level", "normal"), 0))
+        except Exception:
+            pass
+
+        return state
     except Exception as e:
         return {"error": str(e)}
 

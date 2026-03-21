@@ -21,6 +21,23 @@ GROUP_ID = "scraper-enrichment"
 _shutdown_requested = False
 
 
+def _send_to_dlq(message, error: str):
+    """Send a failed message to the dead letter queue."""
+    try:
+        from pipeline.consumer_groups import ConsumerGroupManager
+        mgr = ConsumerGroupManager()
+        key = message.key.decode("utf-8") if message.key else "unknown"
+        mgr.send_to_dlq(
+            original_topic=TOPIC_RAW,
+            key=key,
+            value=message.value if isinstance(message.value, dict) else {},
+            error=error,
+        )
+        mgr.close()
+    except Exception as e:
+        logger.debug(f"[Consumer] DLQ send failed: {e}")
+
+
 def _safe_parse_datetime(value: str | None) -> datetime:
     """Parse a datetime string, returning utcnow on failure."""
     if not value:
@@ -121,12 +138,13 @@ def run_consumer():
                 consumer.commit()
 
             except KeyError as e:
-                # Missing required field — skip this message to avoid poison pill
+                # Missing required field — send to DLQ instead of silently dropping
                 logger.error(f"[Consumer] Skipping message with missing field {e}: {message.key}")
+                _send_to_dlq(message, str(e))
                 consumer.commit()
             except Exception as e:
                 logger.error(f"[Consumer] Error processing message: {e}", exc_info=True)
-                # Commit offset to prevent poison pill — the message is logged for investigation
+                _send_to_dlq(message, str(e))
                 consumer.commit()
     finally:
         producer.flush()

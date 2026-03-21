@@ -119,6 +119,20 @@ def build_beat_schedule() -> dict:
         "options": {"queue": "health"},
     }
 
+    # Backpressure check — every 2 minutes
+    schedule["backpressure-check"] = {
+        "task": "core.tasks.check_backpressure",
+        "schedule": crontab(minute="*/2"),
+        "options": {"queue": "health"},
+    }
+
+    # Data retention cleanup — daily at 2 AM IST (8:30 PM UTC previous day)
+    schedule["retention-cleanup"] = {
+        "task": "core.tasks.run_retention_cleanup",
+        "schedule": crontab(hour=20, minute=30),
+        "options": {"queue": "processors"},
+    }
+
     # ── Daily PDF report — 9:00 AM IST (3:30 AM UTC) ────
     schedule["generate-daily-report"] = {
         "task": "core.tasks.generate_and_email_report",
@@ -221,6 +235,8 @@ app.conf.task_routes = {
     "core.tasks.health_check_all": {"queue": "health"},
     "core.tasks.check_data_quality": {"queue": "health"},
     "core.tasks.push_stats": {"queue": "health"},
+    "core.tasks.check_backpressure": {"queue": "health"},
+    "core.tasks.run_retention_cleanup": {"queue": "processors"},
 }
 
 app.autodiscover_tasks(["core"])

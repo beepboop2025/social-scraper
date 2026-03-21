@@ -42,8 +42,12 @@ class SentimentAnalyzer(BaseProcessor):
     def __init__(self, config: dict = None):
         super().__init__(config)
         self.model_name = self.config.get("model", "ProsusAI/finbert")
+        self.multilingual_model = self.config.get(
+            "multilingual_model", "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+        )
         self.fallback = self.config.get("fallback", "vader")
         self._pipeline = None
+        self._multilingual_pipeline = None
         self._vader = None
 
     def _get_pipeline(self):
@@ -64,6 +68,34 @@ class SentimentAnalyzer(BaseProcessor):
                 self._pipeline = "vader"
         return self._pipeline
 
+    def _get_multilingual_pipeline(self):
+        """Lazy-load multilingual sentiment model (XLM-RoBERTa)."""
+        if self._multilingual_pipeline is None:
+            try:
+                from transformers import pipeline
+                self._multilingual_pipeline = pipeline(
+                    "sentiment-analysis",
+                    model=self.multilingual_model,
+                    tokenizer=self.multilingual_model,
+                    max_length=512,
+                    truncation=True,
+                )
+                logger.info(f"[Sentiment] Loaded multilingual model {self.multilingual_model}")
+            except Exception as e:
+                logger.warning(f"[Sentiment] Multilingual model unavailable ({e}), using VADER")
+                self._multilingual_pipeline = "vader"
+        return self._multilingual_pipeline
+
+    def _detect_language(self, text: str) -> str:
+        """Detect article language using langdetect."""
+        try:
+            from processors.language_detector import detect_language, get_language_stats
+            lang = detect_language(text)
+            get_language_stats().record(lang)
+            return lang
+        except Exception:
+            return "en"
+
     def process_one(self, article: dict) -> dict:
         text = article.get("full_text", "") or article.get("title", "")
         article_id = article.get("id")
@@ -71,9 +103,17 @@ class SentimentAnalyzer(BaseProcessor):
         if not text or len(text.strip()) < 10:
             return {"article_id": article_id, "status": "skipped"}
 
-        score = self._analyze(text)
+        # Detect language and route to appropriate model
+        language = self._detect_language(text)
+        score = self._analyze(text, language=language)
         direction = self._detect_policy_direction(text)
         sectors = self._detect_sectors(text)
+
+        model_used = self.model_name
+        if self._pipeline == "vader":
+            model_used = "vader"
+        elif language != "en":
+            model_used = self.multilingual_model
 
         return {
             "article_id": article_id,
@@ -81,7 +121,8 @@ class SentimentAnalyzer(BaseProcessor):
             "overall": score,
             "policy_direction": direction,
             "sector_scores": sectors,
-            "model": self.model_name if self._pipeline != "vader" else "vader",
+            "model": model_used,
+            "language": language,
         }
 
     @staticmethod
@@ -91,8 +132,19 @@ class SentimentAnalyzer(BaseProcessor):
             return 0.0
         return max(-1.0, min(1.0, score))
 
-    def _analyze(self, text: str) -> float:
-        """Return sentiment score in [-1, 1]."""
+    def _analyze(self, text: str, language: str = "en") -> float:
+        """Return sentiment score in [-1, 1]. Routes to model based on language."""
+        from processors.language_detector import get_sentiment_model_for_language
+
+        model_type = get_sentiment_model_for_language(language)
+
+        if model_type == "vader":
+            return self._sanitize_score(self._vader_score(text))
+
+        if model_type == "xlm-roberta":
+            return self._analyze_multilingual(text)
+
+        # Default: FinBERT for English
         pipeline = self._get_pipeline()
 
         if pipeline == "vader":
@@ -109,6 +161,27 @@ class SentimentAnalyzer(BaseProcessor):
             return 0.0
         except Exception as e:
             logger.debug(f"[Sentiment] FinBERT failed: {e}")
+            return self._sanitize_score(self._vader_score(text))
+
+    def _analyze_multilingual(self, text: str) -> float:
+        """Run sentiment analysis using XLM-RoBERTa multilingual model."""
+        pipeline = self._get_multilingual_pipeline()
+
+        if pipeline == "vader":
+            return self._sanitize_score(self._vader_score(text))
+
+        try:
+            result = pipeline(text[:512])[0]
+            label = result["label"].lower()
+            score = result["score"]
+            # XLM-RoBERTa uses "negative", "neutral", "positive" labels
+            if "negative" in label:
+                return self._sanitize_score(-score)
+            elif "positive" in label:
+                return self._sanitize_score(score)
+            return 0.0
+        except Exception as e:
+            logger.debug(f"[Sentiment] Multilingual model failed: {e}")
             return self._sanitize_score(self._vader_score(text))
 
     def _vader_score(self, text: str) -> float:
