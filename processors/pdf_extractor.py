@@ -19,6 +19,9 @@ _HEADERS = {
 }
 
 
+MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB hard limit
+
+
 class PDFExtractor(BaseProcessor):
     name = "pdf_extractor"
     batch_size = 10
@@ -27,6 +30,7 @@ class PDFExtractor(BaseProcessor):
         super().__init__(config)
         self.max_pages = self.config.get("max_pages", 50)
         self.timeout = self.config.get("timeout", 30)
+        self.max_bytes = self.config.get("max_bytes", MAX_PDF_BYTES)
 
     def process_one(self, article: dict) -> dict:
         url = article.get("url", "")
@@ -70,8 +74,22 @@ class PDFExtractor(BaseProcessor):
             import httpx
             import pdfplumber
 
+            # Check size before downloading to avoid OOM on huge PDFs
+            try:
+                head = httpx.head(url, timeout=10, follow_redirects=True, headers=_HEADERS)
+                content_length = int(head.headers.get("content-length", 0))
+                if content_length > self.max_bytes:
+                    logger.warning(f"[PDFExtractor] Skipping {url}: {content_length} bytes exceeds {self.max_bytes} limit")
+                    return None
+            except (httpx.HTTPError, ValueError):
+                pass  # HEAD failed or no content-length — proceed cautiously
+
             resp = httpx.get(url, timeout=self.timeout, follow_redirects=True, headers=_HEADERS)
             if resp.status_code != 200:
+                return None
+
+            if len(resp.content) > self.max_bytes:
+                logger.warning(f"[PDFExtractor] Skipping {url}: downloaded {len(resp.content)} bytes exceeds limit")
                 return None
 
             pages_text = []

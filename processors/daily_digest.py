@@ -217,6 +217,13 @@ class DailyDigestGenerator(BaseProcessor):
         # Final fallback: rule-based summary
         return f"Daily briefing for {date.today()}: Collected data from multiple sources. See dashboard for details."
 
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        """Escape special characters for Telegram Markdown."""
+        for ch in ("_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"):
+            text = text.replace(ch, f"\\{ch}")
+        return text
+
     def _send_telegram(self, summary: str):
         """Send digest via Telegram bot."""
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -227,12 +234,13 @@ class DailyDigestGenerator(BaseProcessor):
         try:
             import httpx
 
+            escaped = self._escape_markdown(summary[:4000])
             httpx.post(
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
                 json={
                     "chat_id": chat_id,
-                    "text": f"📊 *EconScraper Daily Digest*\n\n{summary[:4000]}",
-                    "parse_mode": "Markdown",
+                    "text": f"📊 *EconScraper Daily Digest*\n\n{escaped}",
+                    "parse_mode": "MarkdownV2",
                 },
                 timeout=10,
             )

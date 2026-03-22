@@ -64,6 +64,7 @@ class Article(Base):
     full_text = Column(Text, nullable=True)
     raw_path = Column(Text, nullable=True)
     category = Column(String(64), nullable=True)
+    quality_score = Column(Integer, nullable=True)
     is_processed = Column(Boolean, default=False)
 
     # Relationships

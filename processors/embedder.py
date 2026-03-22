@@ -110,10 +110,27 @@ class Embedder(BaseProcessor):
         return self._embed_ollama(text)
 
     def _embed_ollama(self, text: str) -> Optional[list[float]]:
-        """Fallback: use Ollama for embeddings."""
+        """Fallback: use Ollama for embeddings.
+
+        Uses the /api/embed endpoint (Ollama 0.5+). Falls back to the
+        deprecated /api/embeddings for older Ollama versions.
+        """
         try:
             import httpx
 
+            # Ollama 0.5+: /api/embed with "input" field
+            resp = httpx.post(
+                f"{self.ollama_url}/api/embed",
+                json={"model": self.ollama_model, "input": text},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                embeddings = data.get("embeddings")
+                if embeddings and len(embeddings) > 0:
+                    return embeddings[0]
+
+            # Fallback for older Ollama (<0.5): /api/embeddings
             resp = httpx.post(
                 f"{self.ollama_url}/api/embeddings",
                 json={"model": self.ollama_model, "prompt": text},

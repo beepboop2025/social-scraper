@@ -140,18 +140,19 @@ class QualityScorer:
             return 0  # Exact duplicate
         self._seen_hashes.add(content_hash)
 
-        # Cap in-memory set
+        # Cap in-memory set — use ordered dict to evict oldest entries
         if len(self._seen_hashes) > 100000:
-            # Evict oldest half
             items = list(self._seen_hashes)
             self._seen_hashes = set(items[len(items) // 2:])
 
-        # Check URL-based duplication
+        # Check URL-based duplication (separate namespace to avoid
+        # false positives from collisions with content hashes)
         url_hash = article.get("url_hash")
-        if url_hash and url_hash in self._seen_hashes:
-            return 5  # Same URL, slightly different content
         if url_hash:
-            self._seen_hashes.add(url_hash)
+            url_key = f"url:{url_hash}"
+            if url_key in self._seen_hashes:
+                return 5  # Same URL, slightly different content
+            self._seen_hashes.add(url_key)
 
         return 20
 
@@ -260,7 +261,11 @@ class QualityScorer:
         return {**self._stats}
 
     def store_scores(self, scored_articles: list[dict]):
-        """Persist quality scores to the database (bulk update)."""
+        """Persist quality scores to the database (bulk update).
+
+        Stores quality_score as an integer in its own column rather than
+        encoding it into the category field (which corrupts routing).
+        """
         try:
             from api.database import SessionLocal
             from storage.models import Article
@@ -273,7 +278,7 @@ class QualityScorer:
                     article_id = article.get("id")
                     if article_id:
                         db.query(Article).filter(Article.id == article_id).update(
-                            {"category": f"q{score['total']}_{article.get('category', 'news')}"},
+                            {"quality_score": score["total"]},
                             synchronize_session=False,
                         )
                 db.commit()
