@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from core.base_collector import BaseCollector
+from core.exceptions import SourceDownError
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class CCILCollector(BaseCollector):
 
     async def collect(self) -> list[dict]:
         records = []
+        failures = []
 
         for dtype in self.data_types:
             try:
@@ -40,7 +42,15 @@ class CCILCollector(BaseCollector):
                 elif dtype in ("cp_rates", "cd_rates"):
                     records.extend(await self._collect_money_market(dtype))
             except Exception as e:
+                failures.append(dtype)
                 logger.warning(f"[CCIL] {dtype} collection failed: {e}")
+
+        if not records and failures:
+            raise SourceDownError(
+                self.name,
+                url=self.FBIL_URL,
+                status_code=0,
+            )
 
         logger.info(f"[CCIL] Collected {len(records)} rate observations")
         return records
@@ -85,7 +95,12 @@ class CCILCollector(BaseCollector):
                         name = cols[0].get_text(strip=True)
                         val_text = cols[-1].get_text(strip=True)
                         try:
-                            val = float(re.sub(r"[^\d.]", "", val_text))
+                            # Extract first decimal number from text
+                            # (re.sub can produce "1.2.3" from "1.2% on 15.3")
+                            match = re.search(r"\d+(?:\.\d+)?", val_text)
+                            if not match:
+                                continue
+                            val = float(match.group())
                             records.append({
                                 "indicator": f"fbil_{name.lower().replace(' ', '_')}",
                                 "value": val,
@@ -216,4 +231,9 @@ class CCILCollector(BaseCollector):
         return pd.DataFrame(rows)
 
     def validate(self, df: pd.DataFrame) -> bool:
-        return "indicator" in df.columns and "date" in df.columns
+        required = ["indicator", "date", "value"]
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            from core.exceptions import SchemaChangedError
+            raise SchemaChangedError(self.name, required, list(df.columns))
+        return True

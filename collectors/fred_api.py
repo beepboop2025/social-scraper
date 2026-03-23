@@ -32,6 +32,7 @@ class FredCollector(BaseCollector):
 
         records = []
         rate_limited = False
+        rate_limit_retry = 60
         for series_id in self.series_ids:
             if rate_limited:
                 logger.warning(f"[FRED] Skipping {series_id} — rate limited")
@@ -48,8 +49,13 @@ class FredCollector(BaseCollector):
                 },
             )
             if resp.status_code == 429:
-                logger.warning(f"[FRED] Rate limited at {series_id}, keeping {len(records)} records collected so far")
+                try:
+                    retry_after = int(resp.headers.get("Retry-After", 60))
+                except (ValueError, TypeError):
+                    retry_after = 60
+                logger.warning(f"[FRED] Rate limited at {series_id}, retry-after={retry_after}s, keeping {len(records)} records collected so far")
                 rate_limited = True
+                rate_limit_retry = retry_after
                 continue
             if resp.status_code != 200:
                 logger.warning(f"[FRED] {series_id} returned {resp.status_code}")
@@ -71,7 +77,7 @@ class FredCollector(BaseCollector):
                     })
 
         if rate_limited and not records:
-            raise RateLimitError(self.name, retry_after=60)
+            raise RateLimitError(self.name, retry_after=rate_limit_retry)
 
         logger.info(f"[FRED] Collected {len(records)} observations across {len(self.series_ids)} series")
         return records
