@@ -245,28 +245,76 @@ def scrape_twitter(self):
 
 
 async def _scrape_twitter_impl():
+    import time as _time
+
+    start = _time.monotonic()
     router = _make_router()
+    dedup = None
+    scraper = None
     try:
+        from core.dedup import URLDeduplicator
         from scrapers.twitter_scraper import TwitterScraper
+
+        dedup = URLDeduplicator()
         scraper = TwitterScraper()
         queries = os.getenv("TWITTER_QUERIES", "stock market,crypto,RBI,treasury,forex").split(",")
         all_items = []
+        query_errors = 0
         for q in queries:
             try:
                 items = await scraper.search_tweets(q.strip(), count=20)
                 all_items.extend(items)
-            except Exception:
-                pass
+            except Exception as e:
+                query_errors += 1
+                logger.warning(f"[Twitter] Query '{q.strip()}' failed: {e}")
+
+        if query_errors == len(queries):
+            logger.error(f"[Twitter] All {len(queries)} queries failed — possible auth/rate-limit issue")
+
+        # Deduplicate before routing
+        if all_items:
+            unique_items = []
+            for item in all_items:
+                url = getattr(item.unified, "source_url", None) or ""
+                if url and await dedup.is_seen(url):
+                    continue
+                unique_items.append(item)
+                if url:
+                    await dedup.mark_seen(url)
+            deduped_count = len(all_items) - len(unique_items)
+            all_items = unique_items
+        else:
+            deduped_count = 0
+
+        result = {
+            "scraper": "twitter",
+            "items_scraped": len(all_items),
+            "deduped": deduped_count,
+            "query_errors": query_errors,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
         if all_items:
             routing = await router.route(all_items)
             await _store_scraped_items(all_items)
-            return {"scraper": "twitter", "items_scraped": len(all_items), "routing": routing}
+            result["routing"] = routing
+
+        duration = _time.monotonic() - start
+        _record_metrics("twitter", len(all_items), duration)
+        return result
     except ImportError:
         logger.debug("[Twitter] twitter_scraper not available")
+        return {"scraper": "twitter", "items_scraped": 0}
+    except Exception:
+        duration = _time.monotonic() - start
+        _record_metrics("twitter", 0, duration, error="scrape_failed")
+        raise
     finally:
+        if scraper and hasattr(scraper, "close"):
+            await scraper.close()
         await router.close()
-    return {"scraper": "twitter", "items_scraped": 0}
+        if dedup:
+            await dedup.close()
 
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
@@ -778,11 +826,26 @@ def health_check_all():
 
 @app.task
 def check_data_quality():
-    """Run data quality checks."""
+    """Run data quality checks and fire webhooks for critical issues."""
     try:
         from monitoring.data_quality import DataQualityChecker
         checker = DataQualityChecker()
-        return checker.run_all_checks()
+        issues = checker.run_all_checks()
+
+        # Fire webhook if there are critical or warning-level issues
+        critical_issues = [i for i in issues if i.get("severity") in ("critical", "warning")]
+        if critical_issues:
+            try:
+                from core.webhooks import fire_event
+                fire_event("data_quality_alert", {
+                    "issues": critical_issues,
+                    "total_issues": len(issues),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
+
+        return issues
     except Exception as e:
         return {"error": str(e)}
 
