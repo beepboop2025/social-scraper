@@ -156,8 +156,8 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
                         "count": len(items),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"[{scraper_name}] Webhook fire failed: {e}")
 
         # Record metrics
         duration = _time.monotonic() - start
@@ -842,8 +842,8 @@ def check_data_quality():
                     "total_issues": len(issues),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[DataQuality] Webhook fire failed: {e}")
 
         return issues
     except Exception as e:
@@ -882,8 +882,8 @@ def check_backpressure():
                     "celery_depth": state.get("celery_depth", 0),
                     "kafka_lag": state.get("kafka_lag", 0),
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[Backpressure] Webhook fire failed: {e}")
 
         # Update Prometheus gauge
         try:

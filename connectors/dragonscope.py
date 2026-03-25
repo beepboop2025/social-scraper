@@ -221,6 +221,9 @@ class DragonScopeConnector:
             logger.error(f"[DragonScope] API push error: {e}")
             return False
 
+    # Cap items per category to prevent oversized Redis payloads
+    MAX_ITEMS_PER_CATEGORY = 500
+
     async def push(self, items: list[ScrapedItem]) -> dict:
         """Push items to DragonScope, grouped by category.
 
@@ -235,6 +238,12 @@ class DragonScopeConnector:
 
         results = {}
         for category, cat_items in by_category.items():
+            if len(cat_items) > self.MAX_ITEMS_PER_CATEGORY:
+                logger.warning(
+                    f"[DragonScope] Truncating {category} batch from "
+                    f"{len(cat_items)} to {self.MAX_ITEMS_PER_CATEGORY} items"
+                )
+                cat_items = cat_items[:self.MAX_ITEMS_PER_CATEGORY]
             # Transform once, reuse payload for both Redis and API paths
             payload = self._transform_for_dragonscope(cat_items, category)
             success = await self.push_via_redis(cat_items, category, payload)

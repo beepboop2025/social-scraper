@@ -169,17 +169,20 @@ class LiquiFiConnector:
 
                 # Detect specific rate mentions
                 rate_patterns = [
-                    (r"repo\s*rate.*?(\d+\.?\d*)\s*%", "repo_rate"),
-                    (r"mibor.*?(\d+\.?\d*)\s*%", "mibor"),
-                    (r"sofr.*?(\d+\.?\d*)\s*%", "sofr"),
-                    (r"usd[/\s]*inr.*?(\d+\.?\d*)", "usdinr"),
-                    (r"crr.*?(\d+\.?\d*)\s*%", "crr"),
-                    (r"slr.*?(\d+\.?\d*)\s*%", "slr"),
+                    (r"repo\s*rate.*?(\d+\.?\d*)\s*%", "repo_rate", None),
+                    (r"mibor.*?(\d+\.?\d*)\s*%", "mibor", None),
+                    (r"sofr.*?(\d+\.?\d*)\s*%", "sofr", None),
+                    (r"usd[/\s]*inr.{0,30}?(\d+\.?\d*)", "usdinr", (40.0, 150.0)),
+                    (r"crr.*?(\d+\.?\d*)\s*%", "crr", None),
+                    (r"slr.*?(\d+\.?\d*)\s*%", "slr", None),
                 ]
-                for pattern, rate_name in rate_patterns:
+                for pattern, rate_name, valid_range in rate_patterns:
                     match = re.search(pattern, text_lower)
                     if match:
-                        signal[rate_name] = float(match.group(1))
+                        value = float(match.group(1))
+                        if valid_range and not (valid_range[0] <= value <= valid_range[1]):
+                            continue
+                        signal[rate_name] = value
 
                 rate_signals.append(signal)
 
