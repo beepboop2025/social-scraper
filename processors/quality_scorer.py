@@ -14,6 +14,7 @@ Quality scores are stored alongside articles in the database.
 import hashlib
 import logging
 import time
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -62,7 +63,7 @@ class QualityScorer:
 
     def __init__(self, threshold: int = DEFAULT_THRESHOLD):
         self.threshold = threshold
-        self._seen_hashes: set = set()
+        self._seen_hashes: OrderedDict = OrderedDict()
         self._stats = {
             "total_scored": 0,
             "passed": 0,
@@ -138,12 +139,13 @@ class QualityScorer:
 
         if content_hash in self._seen_hashes:
             return 0  # Exact duplicate
-        self._seen_hashes.add(content_hash)
+        self._seen_hashes[content_hash] = None
 
-        # Cap in-memory set — use ordered dict to evict oldest entries
+        # Cap entries — evict oldest half (OrderedDict preserves insertion order)
         if len(self._seen_hashes) > 100000:
-            items = list(self._seen_hashes)
-            self._seen_hashes = set(items[len(items) // 2:])
+            to_remove = len(self._seen_hashes) // 2
+            for _ in range(to_remove):
+                self._seen_hashes.popitem(last=False)
 
         # Check URL-based duplication (separate namespace to avoid
         # false positives from collisions with content hashes)
@@ -152,7 +154,7 @@ class QualityScorer:
             url_key = f"url:{url_hash}"
             if url_key in self._seen_hashes:
                 return 5  # Same URL, slightly different content
-            self._seen_hashes.add(url_key)
+            self._seen_hashes[url_key] = None
 
         return 20
 

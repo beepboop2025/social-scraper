@@ -39,7 +39,7 @@ class DailyDigestGenerator(BaseProcessor):
 
         db = SessionLocal()
         try:
-            today = date.today()
+            today = datetime.now(timezone.utc).date()
             yesterday = today - timedelta(days=1)
 
             # Check if digest already exists
@@ -116,7 +116,7 @@ class DailyDigestGenerator(BaseProcessor):
                     "analyzed": len(sentiments),
                 },
                 key_data_releases=[
-                    {"indicator": e.indicator, "value": float(e.value) if e.value else None, "source": e.source}
+                    {"indicator": e.indicator, "value": float(e.value) if e.value is not None else None, "source": e.source}
                     for e in econ_data[:10]
                 ],
                 new_circulars=[

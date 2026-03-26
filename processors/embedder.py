@@ -119,16 +119,19 @@ class Embedder(BaseProcessor):
             import httpx
 
             # Ollama 0.5+: /api/embed with "input" field
-            resp = httpx.post(
-                f"{self.ollama_url}/api/embed",
-                json={"model": self.ollama_model, "input": text},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                embeddings = data.get("embeddings")
-                if embeddings and len(embeddings) > 0:
-                    return embeddings[0]
+            try:
+                resp = httpx.post(
+                    f"{self.ollama_url}/api/embed",
+                    json={"model": self.ollama_model, "input": text},
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    embeddings = data.get("embeddings")
+                    if embeddings and len(embeddings) > 0:
+                        return embeddings[0]
+            except Exception as e:
+                logger.debug(f"[Embedder] Ollama /api/embed failed: {e}")
 
             # Fallback for older Ollama (<0.5): /api/embeddings
             resp = httpx.post(
