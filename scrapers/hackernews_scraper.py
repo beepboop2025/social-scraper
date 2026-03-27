@@ -61,8 +61,12 @@ class HackerNewsScraper(BaseScraper):
                 return None
 
     async def _get_stories(self, category: str = "topstories", limit: int = 100) -> list[int]:
-        resp = await self._http.get(f"{self.BASE_URL}/{category}.json")
-        resp.raise_for_status()
+        try:
+            resp = await self._http.get(f"{self.BASE_URL}/{category}.json")
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.error(f"[HN] Failed to fetch {category} story list: {e}")
+            return []
         try:
             ids = resp.json()
         except Exception:

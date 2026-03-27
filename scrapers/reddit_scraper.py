@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
 
@@ -90,8 +90,11 @@ class RedditScraper(BaseScraper):
                 headers={"Authorization": f"Bearer {token}", "User-Agent": self.user_agent},
             )
         else:
-            if not url.endswith(".json"):
-                url = url.rstrip("/") + ".json"
+            # Ensure .json is in the URL path (before query string), not appended to the full URL
+            parsed = urlparse(url)
+            if not parsed.path.endswith(".json"):
+                parsed = parsed._replace(path=parsed.path.rstrip("/") + ".json")
+                url = urlunparse(parsed)
             resp = await self._http.get(url)
 
         if resp.status_code == 429:
@@ -194,7 +197,7 @@ class RedditScraper(BaseScraper):
 
     async def scrape_channel(self, channel_id: str, limit: int = 100) -> list[ScrapedItem]:
         """Scrape a subreddit's latest posts."""
-        subreddit = channel_id.lstrip("r/").lstrip("/")
+        subreddit = channel_id.removeprefix("r/").removeprefix("/")
         url = f"https://www.reddit.com/r/{subreddit}/new.json?limit={min(limit, 100)}"
         data = await self._fetch_json(url)
         items = []
