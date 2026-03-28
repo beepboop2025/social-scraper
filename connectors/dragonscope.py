@@ -215,7 +215,10 @@ class DragonScopeConnector:
                 logger.info(f"[DragonScope] API push {len(items)} items to {category}")
                 return True
             else:
-                logger.warning(f"[DragonScope] API push failed: {resp.status_code}")
+                body = resp.text[:200] if resp.text else "(empty)"
+                logger.warning(
+                    f"[DragonScope] API push failed: {resp.status_code} — {body}"
+                )
                 return False
         except Exception as e:
             logger.error(f"[DragonScope] API push error: {e}")

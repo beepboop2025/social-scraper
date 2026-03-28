@@ -129,16 +129,22 @@ class LiquiFiConnector:
 
         return min(score, 1.0), matched_categories
 
-    def _transform_for_liquifi(self, items: list[ScrapedItem]) -> dict:
-        """Transform items into LiquiFi-compatible format."""
+    def _transform_for_liquifi(
+        self, items: list[ScrapedItem], scores: dict | None = None
+    ) -> dict:
+        """Transform items into LiquiFi-compatible format.
+
+        Args:
+            scores: Optional dict of {item_id: (relevance, categories)} to avoid
+                    recomputing and to avoid mutating shared item metadata.
+        """
         news_items = []
         rate_signals = []
 
         for item in items:
-            # Use cached scores from push() if available, avoid recomputing
-            relevance = item.unified.raw_metadata.get("treasury_relevance")
-            categories = item.unified.raw_metadata.get("treasury_categories")
-            if relevance is None:
+            if scores and item.unified.id in scores:
+                relevance, categories = scores[item.unified.id]
+            else:
                 relevance, categories = self.score_treasury_relevance(item)
 
             news_entry = {
@@ -169,12 +175,12 @@ class LiquiFiConnector:
 
                 # Detect specific rate mentions
                 rate_patterns = [
-                    (r"repo\s*rate.*?(\d+\.?\d*)\s*%", "repo_rate", None),
-                    (r"mibor.*?(\d+\.?\d*)\s*%", "mibor", None),
-                    (r"sofr.*?(\d+\.?\d*)\s*%", "sofr", None),
+                    (r"repo\s*rate.*?(\d+\.?\d*)\s*%", "repo_rate", (0.0, 15.0)),
+                    (r"mibor.*?(\d+\.?\d*)\s*%", "mibor", (0.0, 20.0)),
+                    (r"sofr.*?(\d+\.?\d*)\s*%", "sofr", (0.0, 15.0)),
                     (r"usd[/\s]*inr.{0,30}?(\d+\.?\d*)", "usdinr", (40.0, 150.0)),
-                    (r"crr.*?(\d+\.?\d*)\s*%", "crr", None),
-                    (r"slr.*?(\d+\.?\d*)\s*%", "slr", None),
+                    (r"crr.*?(\d+\.?\d*)\s*%", "crr", (0.0, 15.0)),
+                    (r"slr.*?(\d+\.?\d*)\s*%", "slr", (0.0, 45.0)),
                 ]
                 for pattern, rate_name, valid_range in rate_patterns:
                     match = re.search(pattern, text_lower)
@@ -194,15 +200,13 @@ class LiquiFiConnector:
             "total_items": len(items),
         }
 
-    async def push_via_redis(self, items: list[ScrapedItem]) -> bool:
+    async def push_via_redis(self, items: list[ScrapedItem], payload: dict) -> bool:
         """Push treasury news directly into LiquiFi's Redis."""
         r = await self._get_redis()
         if not r:
             return False
 
         try:
-            payload = self._transform_for_liquifi(items)
-
             # Write to LiquiFi's news cache
             await r.set(
                 "liquifi:treasury_news",
@@ -235,10 +239,9 @@ class LiquiFiConnector:
             logger.error(f"[LiquiFi] Redis push failed: {e}")
             return False
 
-    async def push_via_api(self, items: list[ScrapedItem]) -> bool:
+    async def push_via_api(self, items: list[ScrapedItem], payload: dict) -> bool:
         """Push via LiquiFi's REST API."""
         try:
-            payload = self._transform_for_liquifi(items)
             resp = await self._http.post(
                 f"{self.api_url}/api/social-intel",
                 json=payload,
@@ -247,7 +250,10 @@ class LiquiFiConnector:
                 logger.info(f"[LiquiFi] API push {len(items)} items")
                 return True
             else:
-                logger.warning(f"[LiquiFi] API push failed: {resp.status_code}")
+                body = resp.text[:200] if resp.text else "(empty)"
+                logger.warning(
+                    f"[LiquiFi] API push failed: {resp.status_code} — {body}"
+                )
                 return False
         except Exception as e:
             logger.error(f"[LiquiFi] API push error: {e}")
@@ -257,22 +263,24 @@ class LiquiFiConnector:
         """Filter and push treasury-relevant items to LiquiFi.
 
         Only items scoring above the relevance threshold are pushed.
+        Scores are stored in a separate lookup to avoid mutating shared items.
         """
         relevant_items = []
+        scores = {}
         for item in items:
             score, categories = self.score_treasury_relevance(item)
             if score >= self.relevance_threshold:
-                # Store relevance info in metadata for downstream use
-                item.unified.raw_metadata["treasury_relevance"] = score
-                item.unified.raw_metadata["treasury_categories"] = categories
+                scores[item.unified.id] = (score, categories)
                 relevant_items.append(item)
 
         if not relevant_items:
             return {"pushed": 0, "filtered_out": len(items), "success": True}
 
-        success = await self.push_via_redis(relevant_items)
+        # Build payload once, pass to both Redis and API paths
+        payload = self._transform_for_liquifi(relevant_items, scores)
+        success = await self.push_via_redis(relevant_items, payload)
         if not success:
-            success = await self.push_via_api(relevant_items)
+            success = await self.push_via_api(relevant_items, payload)
 
         return {
             "pushed": len(relevant_items),
