@@ -40,17 +40,24 @@ class Deduplicator(BaseProcessor):
             url = article.get("url", "")
             text = article.get("full_text", "") or article.get("title", "")
 
-            # Stage 1: URL hash dedup
+            # Stage 1: URL hash dedup (fall back to title hash for URL-less articles)
+            hash_key = None
             if url:
-                url_hash = hashlib.sha256(url.encode()).hexdigest()[:32]
-                if url_hash in seen_hashes:
+                hash_key = hashlib.sha256(url.encode()).hexdigest()[:32]
+            elif text:
+                # URL-less articles (e.g. Telegram, Discord) — hash the title
+                # to catch exact-duplicate posts that bypass URL-based dedup
+                hash_key = hashlib.sha256(text.strip()[:200].encode()).hexdigest()[:32]
+
+            if hash_key:
+                if hash_key in seen_hashes:
                     results.append({
                         "article_id": article_id,
                         "status": "duplicate",
-                        "reason": "url_hash",
+                        "reason": "url_hash" if url else "title_hash",
                     })
                     continue
-                seen_hashes.add(url_hash)
+                seen_hashes.add(hash_key)
 
             # Stage 2: Text similarity dedup
             if text and len(text) > 50:

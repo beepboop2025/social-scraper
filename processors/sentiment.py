@@ -105,15 +105,9 @@ class SentimentAnalyzer(BaseProcessor):
 
         # Detect language and route to appropriate model
         language = self._detect_language(text)
-        score = self._analyze(text, language=language)
+        score, model_used = self._analyze(text, language=language)
         direction = self._detect_policy_direction(text)
         sectors = self._detect_sectors(text)
-
-        model_used = self.model_name
-        if self._pipeline == "vader":
-            model_used = "vader"
-        elif language != "en":
-            model_used = self.multilingual_model
 
         return {
             "article_id": article_id,
@@ -132,14 +126,18 @@ class SentimentAnalyzer(BaseProcessor):
             return 0.0
         return max(-1.0, min(1.0, score))
 
-    def _analyze(self, text: str, language: str = "en") -> float:
-        """Return sentiment score in [-1, 1]. Routes to model based on language."""
+    def _analyze(self, text: str, language: str = "en") -> tuple[float, str]:
+        """Return (sentiment_score, model_used). Score is in [-1, 1].
+
+        Routes to the appropriate model based on language, tracking the model
+        that actually produced the score (including fallback paths).
+        """
         from processors.language_detector import get_sentiment_model_for_language
 
         model_type = get_sentiment_model_for_language(language)
 
         if model_type == "vader":
-            return self._sanitize_score(self._vader_score(text))
+            return self._sanitize_score(self._vader_score(text)), "vader"
 
         if model_type == "xlm-roberta":
             return self._analyze_multilingual(text)
@@ -148,27 +146,30 @@ class SentimentAnalyzer(BaseProcessor):
         pipeline = self._get_pipeline()
 
         if pipeline == "vader":
-            return self._sanitize_score(self._vader_score(text))
+            return self._sanitize_score(self._vader_score(text)), "vader"
 
         try:
             result = pipeline(text[:512])[0]
             label = result["label"].lower()
             score = result["score"]
             if label == "negative":
-                return self._sanitize_score(-score)
+                return self._sanitize_score(-score), self.model_name
             elif label == "positive":
-                return self._sanitize_score(score)
-            return 0.0
+                return self._sanitize_score(score), self.model_name
+            return 0.0, self.model_name
         except Exception as e:
             logger.debug(f"[Sentiment] FinBERT failed: {e}")
-            return self._sanitize_score(self._vader_score(text))
+            return self._sanitize_score(self._vader_score(text)), "vader"
 
-    def _analyze_multilingual(self, text: str) -> float:
-        """Run sentiment analysis using XLM-RoBERTa multilingual model."""
+    def _analyze_multilingual(self, text: str) -> tuple[float, str]:
+        """Run sentiment analysis using XLM-RoBERTa multilingual model.
+
+        Returns (score, model_used) tracking the actual model, not assumed.
+        """
         pipeline = self._get_multilingual_pipeline()
 
         if pipeline == "vader":
-            return self._sanitize_score(self._vader_score(text))
+            return self._sanitize_score(self._vader_score(text)), "vader"
 
         try:
             result = pipeline(text[:512])[0]
@@ -176,13 +177,13 @@ class SentimentAnalyzer(BaseProcessor):
             score = result["score"]
             # XLM-RoBERTa uses "negative", "neutral", "positive" labels
             if "negative" in label:
-                return self._sanitize_score(-score)
+                return self._sanitize_score(-score), self.multilingual_model
             elif "positive" in label:
-                return self._sanitize_score(score)
-            return 0.0
+                return self._sanitize_score(score), self.multilingual_model
+            return 0.0, self.multilingual_model
         except Exception as e:
             logger.debug(f"[Sentiment] Multilingual model failed: {e}")
-            return self._sanitize_score(self._vader_score(text))
+            return self._sanitize_score(self._vader_score(text)), "vader"
 
     def _vader_score(self, text: str) -> float:
         if self._vader is None:

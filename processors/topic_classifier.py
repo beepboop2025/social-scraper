@@ -103,7 +103,9 @@ class TopicClassifier(BaseProcessor):
         for topic, keywords in TOPIC_KEYWORDS.items():
             score = 0.0
             for keyword, weight in keywords:
-                count = text_lower.count(keyword)
+                # Use word boundaries to prevent false positives —
+                # e.g. "rent" must not match "current", "parent", "different"
+                count = len(re.findall(r'\b' + re.escape(keyword) + r'\b', text_lower))
                 if count > 0:
                     score += weight * min(count, 3)  # Cap per-keyword contribution
             if score >= MIN_SCORE_THRESHOLD:
