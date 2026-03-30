@@ -60,7 +60,6 @@ class DataRouter:
             "total_routed": 0,
             "dragonscope_pushed": 0,
             "liquifi_pushed": 0,
-            "both_pushed": 0,
             "kafka_published": 0,
             "errors": 0,
         }

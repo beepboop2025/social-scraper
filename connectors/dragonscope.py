@@ -68,12 +68,19 @@ class DragonScopeConnector:
     async def _get_redis(self):
         """Lazy Redis connection."""
         if self._redis is None:
+            conn = None
             try:
                 import redis.asyncio as aioredis
-                self._redis = aioredis.from_url(self.redis_url, decode_responses=True)
-                await self._redis.ping()
+                conn = aioredis.from_url(self.redis_url, decode_responses=True)
+                await conn.ping()
+                self._redis = conn
             except Exception as e:
                 logger.warning(f"[DragonScope] Redis connection failed: {e}")
+                if conn is not None:
+                    try:
+                        await conn.close()
+                    except Exception:
+                        pass
                 self._redis = None
         return self._redis
 

@@ -90,14 +90,30 @@ class LiquiFiConnector:
 
     async def _get_redis(self):
         if self._redis is None:
+            conn = None
             try:
                 import redis.asyncio as aioredis
-                self._redis = aioredis.from_url(self.redis_url, decode_responses=True)
-                await self._redis.ping()
+                conn = aioredis.from_url(self.redis_url, decode_responses=True)
+                await conn.ping()
+                self._redis = conn
             except Exception as e:
                 logger.warning(f"[LiquiFi] Redis connection failed: {e}")
+                if conn is not None:
+                    try:
+                        await conn.close()
+                    except Exception:
+                        pass
                 self._redis = None
         return self._redis
+
+    # Short keywords that need word-boundary matching to avoid false positives
+    # (e.g. "omo" in "tomorrow", "laf" in "Lafayette")
+    _BOUNDARY_PATTERNS: dict[str, re.Pattern] = {
+        kw: re.compile(r"\b" + re.escape(kw) + r"\b")
+        for cat_kws in TREASURY_KEYWORDS.values()
+        for kw in cat_kws
+        if len(kw) <= 4
+    }
 
     def score_treasury_relevance(self, item: ScrapedItem) -> tuple[float, list[str]]:
         """Score how relevant an item is to treasury operations.
@@ -112,7 +128,13 @@ class LiquiFiConnector:
         matched_categories = []
 
         for category, keywords in TREASURY_KEYWORDS.items():
-            category_hits = sum(1 for kw in keywords if kw in full_text)
+            category_hits = 0
+            for kw in keywords:
+                if kw in self._BOUNDARY_PATTERNS:
+                    if self._BOUNDARY_PATTERNS[kw].search(full_text):
+                        category_hits += 1
+                elif kw in full_text:
+                    category_hits += 1
             if category_hits > 0:
                 matched_categories.append(category)
                 score += min(category_hits * 0.15, 0.4)
