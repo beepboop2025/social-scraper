@@ -41,7 +41,10 @@ class HackerNewsScraper(BaseScraper):
 
     def __init__(self, **kwargs):
         super().__init__(rate_limit=60, **kwargs)
-        self._http = httpx.AsyncClient(timeout=20)
+        self._http = httpx.AsyncClient(
+            timeout=20,
+            headers={"User-Agent": "SocialScraper/3.0 (HackerNews; +https://github.com)"},
+        )
         self._sem = asyncio.Semaphore(self.MAX_CONCURRENT)
 
     async def _get_item(self, item_id: int) -> Optional[dict]:

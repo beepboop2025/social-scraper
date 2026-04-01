@@ -84,7 +84,9 @@ class RedditScraper(BaseScraper):
         """Fetch JSON from Reddit, using OAuth if available."""
         token = await self._get_oauth_token()
         if token:
+            # Normalize both www and non-www reddit URLs to oauth.reddit.com
             url = url.replace("https://www.reddit.com", "https://oauth.reddit.com")
+            url = url.replace("https://reddit.com", "https://oauth.reddit.com")
             resp = await self._http.get(
                 url,
                 headers={"Authorization": f"Bearer {token}", "User-Agent": self.user_agent},
@@ -98,7 +100,14 @@ class RedditScraper(BaseScraper):
             resp = await self._http.get(url)
 
         if resp.status_code == 429:
-            retry_after = int(resp.headers.get("Retry-After", 10))
+            raw_retry = resp.headers.get("Retry-After", "10")
+            try:
+                retry_after = int(raw_retry)
+            except (ValueError, TypeError):
+                # Retry-After can be a date string per RFC 7231; fall back to 30s
+                logger.debug(f"[Reddit] Non-integer Retry-After header: {raw_retry!r}")
+                retry_after = 30
+            retry_after = min(retry_after, 120)  # Cap at 2 minutes
             logger.warning(f"[Reddit] Rate limited on {url}, backing off {retry_after}s")
             await asyncio.sleep(retry_after)
             raise httpx.HTTPStatusError(
