@@ -89,6 +89,8 @@ class DataRouter:
 
         return dest
 
+    KAFKA_PUBLISH_TIMEOUT = 45  # seconds — must exceed producer flush_timeout (30s)
+
     async def _publish_to_kafka(self, items: list[ScrapedItem], destination: str):
         """Publish items to Kafka for persistence."""
         if not self.kafka_producer:
@@ -103,10 +105,19 @@ class DataRouter:
                 data["_routed_at"] = datetime.now(timezone.utc).isoformat()
                 batch.append(data)
 
-            await asyncio.to_thread(
-                publish_batch, self.kafka_producer, batch, f"routed-{destination}"
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    publish_batch, self.kafka_producer, batch, f"routed-{destination}"
+                ),
+                timeout=self.KAFKA_PUBLISH_TIMEOUT,
             )
             self._stats["kafka_published"] += len(items)
+        except asyncio.TimeoutError:
+            logger.error(
+                f"[Router] Kafka publish timed out after {self.KAFKA_PUBLISH_TIMEOUT}s "
+                f"for {len(items)} items to routed-{destination}"
+            )
+            self._stats["errors"] += 1
         except Exception as e:
             logger.warning(f"[Router] Kafka publish failed: {e}")
 

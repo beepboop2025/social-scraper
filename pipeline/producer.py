@@ -34,9 +34,17 @@ def publish_scraped_item(producer: KafkaProducer, item: dict, platform: str):
     producer.send(TOPIC_RAW, key=key, value=envelope)
 
 
-def publish_batch(producer: KafkaProducer, items: list[dict], platform: str):
-    """Publish a batch of scraped items."""
+def publish_batch(producer: KafkaProducer, items: list[dict], platform: str, flush_timeout: float = 30):
+    """Publish a batch of scraped items.
+
+    Args:
+        flush_timeout: Max seconds to wait for flush. Prevents indefinite blocking
+                       when Kafka is unreachable.
+    """
     for item in items:
         publish_scraped_item(producer, item, platform)
-    producer.flush()
-    logger.info(f"[Producer] Published {len(items)} items to {TOPIC_RAW}")
+    remaining = producer.flush(timeout=flush_timeout)
+    if remaining > 0:
+        logger.warning(f"[Producer] Flush timed out after {flush_timeout}s — {remaining} messages unsent")
+    else:
+        logger.info(f"[Producer] Published {len(items)} items to {TOPIC_RAW}")

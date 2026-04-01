@@ -92,7 +92,7 @@ class DragonScopeConnector:
                     {
                         "title": item.unified.raw_metadata.get("title", item.unified.text[:100]),
                         "body": item.unified.text,
-                        "author": item.unified.author.username,
+                        "author": item.unified.author.username or item.unified.author.display_name,
                         "subreddit": item.unified.source_channel or item.unified.platform.value,
                         "score": item.unified.engagement.likes,
                         "num_comments": item.unified.engagement.replies,
@@ -129,7 +129,7 @@ class DragonScopeConnector:
             return {
                 "repos": [
                     {
-                        "name": item.unified.source_channel or item.unified.author.username,
+                        "name": item.unified.source_channel or item.unified.author.username or item.unified.author.display_name,
                         "full_name": item.unified.source_channel,
                         "description": item.unified.text[:300],
                         "stars": item.unified.engagement.likes,
@@ -187,13 +187,16 @@ class DragonScopeConnector:
             cache_key = f"market:{category}"
             await r.set(cache_key, payload_json, ex=300)  # 5min TTL
 
-            # Publish update notification
-            await r.publish("market:updates", json.dumps({
-                "category": category,
-                "source": "social_scraper",
-                "count": len(items),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }))
+            # Publish update notification — best-effort; data is already cached
+            try:
+                await r.publish("market:updates", json.dumps({
+                    "category": category,
+                    "source": "social_scraper",
+                    "count": len(items),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }))
+            except Exception as pub_err:
+                logger.warning(f"[DragonScope] Redis publish notification failed (data cached OK): {pub_err}")
 
             logger.info(f"[DragonScope] Pushed {len(items)} items to Redis:{category}")
             return True
