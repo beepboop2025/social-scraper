@@ -22,11 +22,13 @@ class DataQualityChecker:
             "sebi_circulars": 24,
             "world_bank": 168,  # Weekly
             "imf_data": 744,   # Monthly
-            # Social/news collectors
+            # Social/news collectors (YAML-driven, via BaseCollector)
             "rss_feeds": 6,
             "twitter_lists": 6,
             "telegram_channels": 6,
-            # Social scrapers
+            # Social scrapers (code-driven, via _scrape_and_route)
+            "twitter": 2,
+            "rss": 2,
             "reddit": 2,
             "hackernews": 2,
             "youtube": 2,

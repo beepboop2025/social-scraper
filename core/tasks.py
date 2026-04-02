@@ -52,6 +52,35 @@ def _record_metrics(scraper_name: str, items_count: int, duration: float, error:
         pass
 
 
+def _log_scraper_collection(source: str, status: str, records: int, duration: float, error: str = ""):
+    """Write a CollectionLog entry for a social scraper run.
+
+    Without this, data_quality.py staleness checks always report social
+    scrapers as stale because they only query CollectionLog (which was
+    previously only written by YAML-driven BaseCollector subclasses).
+    """
+    try:
+        from storage.models import CollectionLog
+        from api.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            log = CollectionLog(
+                source=source,
+                status=status,
+                records_collected=records,
+                duration_seconds=round(duration, 2),
+                error_message=error[:1000] if error else None,
+                run_at=datetime.now(timezone.utc),
+            )
+            db.add(log)
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.debug(f"[Tasks] CollectionLog write failed for {source}: {e}")
+
+
 # ══════════════════════════════════════════════════════════════
 # 1. COLLECTOR TASKS (YAML-driven via sources.yaml)
 # ══════════════════════════════════════════════════════════════
@@ -163,10 +192,25 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
         duration = _time.monotonic() - start
         _record_metrics(scraper_name, len(items) if items else 0, duration)
 
+        # Write CollectionLog so data quality staleness checks work
+        _log_scraper_collection(
+            source=scraper_name,
+            status="success",
+            records=len(items) if items else 0,
+            duration=duration,
+        )
+
         return result
     except Exception as e:
         duration = _time.monotonic() - start
         _record_metrics(scraper_name, 0, duration, error=type(e).__name__)
+        _log_scraper_collection(
+            source=scraper_name,
+            status="failed",
+            records=0,
+            duration=duration,
+            error=str(e),
+        )
         raise
     finally:
         if scraper and hasattr(scraper, "close"):
@@ -301,6 +345,10 @@ async def _scrape_twitter_impl():
 
         duration = _time.monotonic() - start
         _record_metrics("twitter", len(all_items), duration)
+        _log_scraper_collection(
+            source="twitter", status="success",
+            records=len(all_items), duration=duration,
+        )
         return result
     except ImportError:
         logger.debug("[Twitter] twitter_scraper not available")
@@ -308,6 +356,10 @@ async def _scrape_twitter_impl():
     except Exception:
         duration = _time.monotonic() - start
         _record_metrics("twitter", 0, duration, error="scrape_failed")
+        _log_scraper_collection(
+            source="twitter", status="failed",
+            records=0, duration=duration, error="scrape_failed",
+        )
         raise
     finally:
         if scraper and hasattr(scraper, "close"):
@@ -377,30 +429,30 @@ def scrape_rss_financial(self):
 
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scrape_central_banks(self):
-    if _check_backpressure("centralbank", is_critical=True):
-        return {"scraper": "centralbank", "items_scraped": 0, "skipped": "backpressure"}
+    if _check_backpressure("central_bank", is_critical=True):
+        return {"scraper": "central_bank", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.centralbank_scraper import CentralBankScraper
         return _run_async(_scrape_and_route(CentralBankScraper, "scrape_all"))
     except Exception as e:
         logger.error(
             "Scrape task failed",
-            extra={"source": "centralbank", "error_type": type(e).__name__, "error": str(e)},
+            extra={"source": "central_bank", "error_type": type(e).__name__, "error": str(e)},
         )
         self.retry(exc=e)
 
 
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
 def scrape_sec(self):
-    if _check_backpressure("sec"):
-        return {"scraper": "sec", "items_scraped": 0, "skipped": "backpressure"}
+    if _check_backpressure("sec_edgar"):
+        return {"scraper": "sec_edgar", "items_scraped": 0, "skipped": "backpressure"}
     try:
         from scrapers.sec_scraper import SECScraper
         return _run_async(_scrape_and_route(SECScraper, "scrape_recent_filings", limit=30))
     except Exception as e:
         logger.error(
             "Scrape task failed",
-            extra={"source": "sec", "error_type": type(e).__name__, "error": str(e)},
+            extra={"source": "sec_edgar", "error_type": type(e).__name__, "error": str(e)},
         )
         self.retry(exc=e)
 
