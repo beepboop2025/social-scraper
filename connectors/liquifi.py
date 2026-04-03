@@ -244,13 +244,16 @@ class LiquiFiConnector:
                     ex=300,
                 )
 
-            # Publish notification
-            await r.publish("liquifi:updates", json.dumps({
-                "type": "treasury_news",
-                "count": len(items),
-                "signals": len(payload["rate_signals"]),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }))
+            # Publish notification — best-effort; data is already cached
+            try:
+                await r.publish("liquifi:updates", json.dumps({
+                    "type": "treasury_news",
+                    "count": len(items),
+                    "signals": len(payload["rate_signals"]),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }))
+            except Exception as pub_err:
+                logger.warning(f"[LiquiFi] Redis publish notification failed (data cached OK): {pub_err}")
 
             logger.info(
                 f"[LiquiFi] Pushed {len(items)} news items, "

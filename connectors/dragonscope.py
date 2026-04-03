@@ -92,7 +92,7 @@ class DragonScopeConnector:
                     {
                         "title": item.unified.raw_metadata.get("title", item.unified.text[:100]),
                         "body": item.unified.text,
-                        "author": item.unified.author.username or item.unified.author.display_name,
+                        "author": item.unified.author.username or item.unified.author.display_name or "unknown",
                         "subreddit": item.unified.source_channel or item.unified.platform.value,
                         "score": item.unified.engagement.likes,
                         "num_comments": item.unified.engagement.replies,
@@ -113,7 +113,7 @@ class DragonScopeConnector:
                         "title": item.unified.raw_metadata.get("title", item.unified.text[:100]),
                         "description": item.unified.text[:500],
                         "content": item.unified.text,
-                        "author": item.unified.author.display_name,
+                        "author": item.unified.author.display_name or item.unified.author.username or "unknown",
                         "source": item.unified.source_channel or item.unified.platform.value,
                         "url": item.unified.source_url,
                         "publishedAt": item.unified.created_at.isoformat(),
