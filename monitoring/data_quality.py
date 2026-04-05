@@ -56,15 +56,35 @@ class DataQualityChecker:
                 })
         return issues
 
+    def _get_disabled_yaml_sources(self) -> set[str]:
+        """Return set of source names explicitly disabled in sources.yaml."""
+        try:
+            from pathlib import Path
+            import yaml
+            config_path = Path(__file__).parent.parent / "config" / "sources.yaml"
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            return {
+                name for name, cfg in config.get("sources", {}).items()
+                if not cfg.get("enabled", True)
+            }
+        except Exception:
+            return set()
+
     def check_staleness(self) -> list[dict]:
         """Check if any source has stopped producing data."""
         from api.database import SessionLocal
         from storage.models import CollectionLog
 
+        disabled = self._get_disabled_yaml_sources()
+
         issues = []
         db = SessionLocal()
         try:
             for source, max_hours in self.staleness_hours.items():
+                if source in disabled:
+                    continue
+
                 cutoff = datetime.now(timezone.utc) - timedelta(hours=max_hours)
                 recent = (
                     db.query(CollectionLog)

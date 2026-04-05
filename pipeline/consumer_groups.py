@@ -105,6 +105,7 @@ class ConsumerGroupManager:
                     bootstrap_servers=self.bootstrap_servers,
                     group_id=gid,
                     enable_auto_commit=False,
+                    request_timeout_ms=10000,
                 )
 
                 group_lag = {"topics": {}, "total_lag": 0}
@@ -210,6 +211,7 @@ class ConsumerGroupManager:
                 bootstrap_servers=self.bootstrap_servers,
                 group_id=f"{group_id}-replay",
                 enable_auto_commit=False,
+                consumer_timeout_ms=10000,
                 value_deserializer=lambda m: json.loads(m.decode("utf-8")),
             )
             consumer.assign([tp])
@@ -266,6 +268,7 @@ class ConsumerGroupManager:
                     bootstrap_servers=self.bootstrap_servers,
                     group_id="dlq-health",
                     enable_auto_commit=False,
+                    request_timeout_ms=10000,
                 )
                 try:
                     partitions = consumer.partitions_for_topic(TOPIC_DLQ) or set()
