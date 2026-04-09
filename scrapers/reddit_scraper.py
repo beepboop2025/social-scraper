@@ -125,14 +125,15 @@ class RedditScraper(BaseScraper):
         data = post_data.get("data", post_data)
         created_utc = data.get("created_utc", 0)
 
+        author_name = data.get("author") or "[deleted]"
         content = ScrapedContent(
             id=self.make_id("reddit", data.get("id", "")),
             platform=Platform.REDDIT,
             content_type=ContentType.POST,
             text=data.get("selftext", "") or data.get("title", ""),
             author=AuthorInfo(
-                username=data.get("author", "[deleted]"),
-                display_name=data.get("author", "[deleted]"),
+                username=author_name,
+                display_name=author_name,
                 id=data.get("author_fullname"),
             ),
             engagement=EngagementMetrics(
@@ -167,14 +168,15 @@ class RedditScraper(BaseScraper):
         if data.get("body") in (None, "[removed]", "[deleted]"):
             return None
 
+        comment_author = data.get("author") or "[deleted]"
         content = ScrapedContent(
             id=self.make_id("reddit", "comment", data.get("id", "")),
             platform=Platform.REDDIT,
             content_type=ContentType.COMMENT,
             text=data.get("body", ""),
             author=AuthorInfo(
-                username=data.get("author", "[deleted]"),
-                display_name=data.get("author", "[deleted]"),
+                username=comment_author,
+                display_name=comment_author,
             ),
             engagement=EngagementMetrics(
                 likes=data.get("ups", 0),

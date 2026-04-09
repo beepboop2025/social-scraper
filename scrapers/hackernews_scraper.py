@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -20,9 +21,15 @@ FINANCIAL_KEYWORDS = [
     "stock", "crypto", "bitcoin", "ethereum", "market", "trading",
     "fed", "interest rate", "inflation", "recession", "gdp",
     "startup funding", "ipo", "acquisition", "valuation",
-    "bank", "fintech", "defi", "treasury", "bond", "yield",
-    "sec", "regulation", "hedge fund", "venture capital",
+    "bank", "fintech", "defi", "treasury", "bond",
+    "regulation", "hedge fund", "venture capital",
+    # Specific yield phrases to avoid matching programming "yield"
+    "yield curve", "bond yield", "treasury yield", "dividend yield",
 ]
+
+# Short keywords needing word-boundary matching to avoid false positives
+# ("sec" matches "secure"/"section" without boundaries)
+_FINANCIAL_WORD_RE = re.compile(r'\bsec\b')
 
 
 class HackerNewsScraper(BaseScraper):
@@ -133,7 +140,9 @@ class HackerNewsScraper(BaseScraper):
 
     def _is_financial(self, item: dict) -> bool:
         text = f"{item.get('title', '')} {item.get('text', '')} {item.get('url', '')}".lower()
-        return any(kw in text for kw in FINANCIAL_KEYWORDS)
+        if any(kw in text for kw in FINANCIAL_KEYWORDS):
+            return True
+        return bool(_FINANCIAL_WORD_RE.search(text))
 
     async def scrape(self, query: str, limit: int = 50) -> list[ScrapedItem]:
         """Fetch top stories from HN (query used as category: topstories/newstories/beststories)."""
