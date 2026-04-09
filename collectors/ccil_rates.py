@@ -127,13 +127,16 @@ class CCILCollector(BaseCollector):
             for tenor_key, tenor_label in tenors.items():
                 value = data.get(tenor_key) or data.get(tenor_label)
                 if value is not None:
-                    records.append({
-                        "indicator": f"mibor_{tenor_key}",
-                        "value": float(value),
-                        "date": datetime.now(timezone.utc).isoformat(),
-                        "source_type": "mibor",
-                        "metadata": {"tenor": tenor_label},
-                    })
+                    try:
+                        records.append({
+                            "indicator": f"mibor_{tenor_key}",
+                            "value": float(value),
+                            "date": datetime.now(timezone.utc).isoformat(),
+                            "source_type": "mibor",
+                            "metadata": {"tenor": tenor_label},
+                        })
+                    except (ValueError, TypeError):
+                        logger.warning(f"[CCIL] MIBOR {tenor_key}: non-numeric value {value!r}")
             return records
         except Exception as e:
             logger.warning(f"[CCIL] MIBOR collection failed: {e}")
@@ -151,9 +154,14 @@ class CCILCollector(BaseCollector):
             if value is None:
                 logger.warning("[CCIL] TREPS response missing rate value")
                 return []
+            try:
+                float_value = float(value)
+            except (ValueError, TypeError):
+                logger.warning(f"[CCIL] TREPS: non-numeric value {value!r}")
+                return []
             return [{
                 "indicator": "treps_weighted_avg",
-                "value": float(value),
+                "value": float_value,
                 "date": datetime.now(timezone.utc).isoformat(),
                 "source_type": "treps_rates",
             }]
@@ -174,13 +182,16 @@ class CCILCollector(BaseCollector):
             for t in tenors:
                 value = data.get(t) or data.get(t.lower())
                 if value is not None:
-                    records.append({
-                        "indicator": f"gsec_yield_{t.lower()}",
-                        "value": float(value),
-                        "date": datetime.now(timezone.utc).isoformat(),
-                        "source_type": "sovereign_yield_curve",
-                        "metadata": {"tenor": t},
-                    })
+                    try:
+                        records.append({
+                            "indicator": f"gsec_yield_{t.lower()}",
+                            "value": float(value),
+                            "date": datetime.now(timezone.utc).isoformat(),
+                            "source_type": "sovereign_yield_curve",
+                            "metadata": {"tenor": t},
+                        })
+                    except (ValueError, TypeError):
+                        logger.warning(f"[CCIL] Yield curve {t}: non-numeric value {value!r}")
             return records
         except Exception as e:
             logger.warning(f"[CCIL] Yield curve collection failed: {e}")
@@ -200,13 +211,16 @@ class CCILCollector(BaseCollector):
             for t in tenors:
                 value = data.get(t) or data.get(t.lower())
                 if value is not None:
-                    records.append({
-                        "indicator": f"{prefix}_rate_{t.lower()}",
-                        "value": float(value),
-                        "date": datetime.now(timezone.utc).isoformat(),
-                        "source_type": dtype,
-                        "metadata": {"tenor": t},
-                    })
+                    try:
+                        records.append({
+                            "indicator": f"{prefix}_rate_{t.lower()}",
+                            "value": float(value),
+                            "date": datetime.now(timezone.utc).isoformat(),
+                            "source_type": dtype,
+                            "metadata": {"tenor": t},
+                        })
+                    except (ValueError, TypeError):
+                        logger.warning(f"[CCIL] {prefix.upper()} {t}: non-numeric value {value!r}")
             return records
         except Exception as e:
             logger.warning(f"[CCIL] {prefix.upper()} rates collection failed: {e}")

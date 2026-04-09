@@ -68,7 +68,7 @@ class FredCollector(BaseCollector):
                 continue
 
             for obs in data.get("observations", []):
-                if obs.get("value") not in (".", "", None):
+                if obs.get("value") not in (".", "", None) and obs.get("date"):
                     records.append({
                         "series_id": series_id,
                         "date": obs["date"],
