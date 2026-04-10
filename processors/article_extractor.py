@@ -11,6 +11,8 @@ from core.base_processor import BaseProcessor
 
 logger = logging.getLogger(__name__)
 
+MAX_HTML_BYTES = 10 * 1024 * 1024  # 10 MB limit for HTML pages
+
 _HEADERS = {
     "User-Agent": "EconScraper/4.0 (article-extractor; +https://github.com)",
 }
@@ -76,6 +78,10 @@ class ArticleExtractor(BaseProcessor):
 
             resp = httpx.get(url, timeout=self.timeout, follow_redirects=True, headers=_HEADERS)
             if resp.status_code != 200:
+                return None
+
+            if len(resp.content) > MAX_HTML_BYTES:
+                logger.warning(f"[ArticleExtractor] Skipping {url}: {len(resp.content)} bytes exceeds HTML limit")
                 return None
 
             soup = BeautifulSoup(resp.text, "html.parser")

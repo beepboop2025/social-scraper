@@ -92,7 +92,7 @@ class DailyDigestGenerator(BaseProcessor):
             )
 
             # Build context for LLM
-            context = self._build_context(articles, sentiments, entities, topics, econ_data)
+            context = self._build_context(articles, sentiments, entities, topics, econ_data, today)
             summary = self._generate_summary(context)
 
             # Compute aggregates
@@ -143,8 +143,8 @@ class DailyDigestGenerator(BaseProcessor):
         finally:
             db.close()
 
-    def _build_context(self, articles, sentiments, entities, topics, econ_data) -> str:
-        lines = [f"=== Daily Economic Briefing ({date.today()}) ===\n"]
+    def _build_context(self, articles, sentiments, entities, topics, econ_data, digest_date=None) -> str:
+        lines = [f"=== Daily Economic Briefing ({digest_date or date.today()}) ===\n"]
 
         lines.append(f"\n--- {len(articles)} Articles Collected ---")
         for a in articles[:20]:
