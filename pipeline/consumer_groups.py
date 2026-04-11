@@ -164,6 +164,7 @@ class ConsumerGroupManager:
 
     def get_dlq_messages(self, limit: int = 50) -> list[dict]:
         """Read messages from the dead letter queue (peek, no commit)."""
+        consumer = None
         try:
             consumer = KafkaConsumer(
                 TOPIC_DLQ,
@@ -187,11 +188,16 @@ class ConsumerGroupManager:
                 if len(messages) >= limit:
                     break
 
-            consumer.close()
             return messages
         except Exception as e:
             logger.error(f"[DLQ] Read failed: {e}")
             return []
+        finally:
+            if consumer:
+                try:
+                    consumer.close()
+                except Exception:
+                    pass
 
     def replay_messages(
         self,
@@ -205,6 +211,8 @@ class ConsumerGroupManager:
 
         Re-processes by sending them back to the raw-posts topic.
         """
+        consumer = None
+        producer = None
         try:
             tp = TopicPartition(topic, partition)
             consumer = KafkaConsumer(
@@ -236,8 +244,6 @@ class ConsumerGroupManager:
                 replayed += 1
 
             producer.flush()
-            producer.close()
-            consumer.close()
 
             logger.info(
                 f"[Replay] Replayed {replayed} messages from {topic}:{partition} "
@@ -252,6 +258,17 @@ class ConsumerGroupManager:
         except Exception as e:
             logger.error(f"[Replay] Failed: {e}")
             return {"error": str(e)}
+        finally:
+            if producer:
+                try:
+                    producer.close()
+                except Exception:
+                    pass
+            if consumer:
+                try:
+                    consumer.close()
+                except Exception:
+                    pass
 
     def health(self) -> dict:
         """Get Kafka consumer group health stats."""

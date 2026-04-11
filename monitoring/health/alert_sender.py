@@ -64,12 +64,15 @@ async def send_telegram_alert(message: str, chat_id: str, bot_token: str) -> boo
                     import asyncio
                     retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
                     await asyncio.sleep(retry_after)
-                    await client.post(url, json={
+                    retry_resp = await client.post(url, json={
                         "chat_id": chat_id,
                         "text": part,
                         "parse_mode": "HTML",
                         "disable_web_page_preview": True,
                     })
+                    if retry_resp.status_code >= 400:
+                        print(f"  Telegram API error after retry: {retry_resp.status_code} {retry_resp.text[:200]}")
+                        return False
                 elif resp.status_code >= 400:
                     print(f"  Telegram API error: {resp.status_code} {resp.text[:200]}")
                     return False
