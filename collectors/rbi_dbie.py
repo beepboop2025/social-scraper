@@ -84,7 +84,7 @@ class RBIDbie(BaseCollector):
                             name = cols[0].get_text(strip=True).lower()
                             val_text = cols[-1].get_text(strip=True)
                             match = re.search(r"(\d+\.?\d*)", val_text)
-                            if match and any(kw in name for kw in ["repo", "bank rate", "msf", "reverse", "crr", "slr"]):
+                            if match and any(kw in name for kw in ["repo", "bank rate", "msf", "reverse", "crr", "slr", "sdf", "standing deposit"]):
                                 records.append({
                                     "indicator": f"rbi_{name.replace(' ', '_')}",
                                     "value": float(match.group(1)),

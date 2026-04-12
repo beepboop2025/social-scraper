@@ -239,7 +239,7 @@ async def _store_scraped_items(items):
                     url=url,
                     url_hash=url_hash,
                     title=u.raw_metadata.get("title", u.text[:200] if u.text else ""),
-                    author=u.author.username or u.author.display_name,
+                    author=(u.author.username or u.author.display_name) if u.author else "",
                     published_at=u.created_at or datetime.now(timezone.utc),
                     collected_at=datetime.now(timezone.utc),
                     full_text=u.text[:10000] if u.text else "",

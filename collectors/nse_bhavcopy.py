@@ -27,16 +27,20 @@ class NSEBhavcopy(BaseCollector):
         })
 
     async def _get_nse_cookies(self):
-        """NSE requires a session cookie from the homepage."""
-        resp = await self._http.get(self.NSE_URL)
-        return resp.cookies
+        """NSE requires a session cookie from the homepage.
+
+        The httpx client auto-persists cookies from the response, so we
+        don't need the return value — just hitting the homepage is enough.
+        """
+        await self._http.get(self.NSE_URL)
 
     async def collect(self) -> list[dict]:
         records = []
         try:
             await self._get_nse_cookies()
         except Exception as e:
-            logger.warning(f"[NSE] Cookie fetch failed: {e}")
+            logger.error(f"[NSE] Cookie prefetch failed — aborting collection (all API calls require session cookies): {e}")
+            return records
 
         if "fii_dii" in self.types:
             try:
