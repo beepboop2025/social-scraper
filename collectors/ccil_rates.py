@@ -59,20 +59,29 @@ class CCILCollector(BaseCollector):
         """FBIL benchmark rates — MIBOR O/N, Term MIBOR, MIFOR."""
         records = []
 
+        # Known metadata fields that are NOT rate observations
+        _meta_fields = {"status", "status_code", "count", "total", "version",
+                        "timestamp", "id", "page", "size", "error", "code"}
+
         # Try JSON API first
         try:
             resp = await self._http.get(f"{self.FBIL_URL}/api/ratesapi")
             if resp.status_code == 200:
                 data = resp.json()
-                for item in data if isinstance(data, list) else [data]:
-                    for key, value in item.items():
-                        if isinstance(value, (int, float)):
-                            records.append({
-                                "indicator": f"fbil_{key}",
-                                "value": float(value),
-                                "date": datetime.now(timezone.utc).isoformat(),
-                                "source_type": "fbil_reference_rates",
-                            })
+                if not isinstance(data, (dict, list)):
+                    logger.warning(f"[CCIL] FBIL API returned unexpected type: {type(data).__name__}")
+                else:
+                    for item in data if isinstance(data, list) else [data]:
+                        if not isinstance(item, dict):
+                            continue
+                        for key, value in item.items():
+                            if isinstance(value, (int, float)) and key.lower() not in _meta_fields:
+                                records.append({
+                                    "indicator": f"fbil_{key}",
+                                    "value": float(value),
+                                    "date": datetime.now(timezone.utc).isoformat(),
+                                    "source_type": "fbil_reference_rates",
+                                })
                 if records:
                     return records
         except Exception as e:
@@ -122,6 +131,9 @@ class CCILCollector(BaseCollector):
                 logger.warning(f"[CCIL] MIBOR endpoint returned {resp.status_code}")
                 return []
             data = resp.json()
+            if not isinstance(data, dict):
+                logger.warning(f"[CCIL] MIBOR returned non-dict response: {type(data).__name__}")
+                return []
             records = []
             tenors = {"overnight": "O/N", "14day": "14D", "1month": "1M", "3month": "3M"}
             for tenor_key, tenor_label in tenors.items():
@@ -150,6 +162,9 @@ class CCILCollector(BaseCollector):
                 logger.warning(f"[CCIL] TREPS endpoint returned {resp.status_code}")
                 return []
             data = resp.json()
+            if not isinstance(data, dict):
+                logger.warning(f"[CCIL] TREPS returned non-dict response: {type(data).__name__}")
+                return []
             value = data.get("weighted_avg") or data.get("rate")
             if value is None:
                 logger.warning("[CCIL] TREPS response missing rate value")
@@ -177,6 +192,9 @@ class CCILCollector(BaseCollector):
                 logger.warning(f"[CCIL] Yield curve endpoint returned {resp.status_code}")
                 return []
             data = resp.json()
+            if not isinstance(data, dict):
+                logger.warning(f"[CCIL] Yield curve returned non-dict response: {type(data).__name__}")
+                return []
             records = []
             tenors = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "15Y", "20Y", "30Y"]
             for t in tenors:
@@ -206,6 +224,9 @@ class CCILCollector(BaseCollector):
                 logger.warning(f"[CCIL] {prefix.upper()} rates endpoint returned {resp.status_code}")
                 return []
             data = resp.json()
+            if not isinstance(data, dict):
+                logger.warning(f"[CCIL] {prefix.upper()} rates returned non-dict response: {type(data).__name__}")
+                return []
             records = []
             tenors = ["1M", "3M", "6M", "12M"]
             for t in tenors:

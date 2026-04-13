@@ -67,6 +67,10 @@ class FredCollector(BaseCollector):
                 logger.warning(f"[FRED] {series_id} returned non-JSON response")
                 continue
 
+            if not isinstance(data, dict):
+                logger.warning(f"[FRED] {series_id} returned unexpected JSON type: {type(data).__name__}")
+                continue
+
             for obs in data.get("observations", []):
                 if obs.get("value") not in (".", "", None) and obs.get("date"):
                     records.append({
