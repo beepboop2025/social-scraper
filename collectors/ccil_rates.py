@@ -75,7 +75,7 @@ class CCILCollector(BaseCollector):
                         if not isinstance(item, dict):
                             continue
                         for key, value in item.items():
-                            if isinstance(value, (int, float)) and key.lower() not in _meta_fields:
+                            if isinstance(value, (int, float)) and not isinstance(value, bool) and key.lower() not in _meta_fields:
                                 records.append({
                                     "indicator": f"fbil_{key}",
                                     "value": float(value),
@@ -102,6 +102,8 @@ class CCILCollector(BaseCollector):
                     cols = row.find_all("td")
                     if len(cols) >= 2:
                         name = cols[0].get_text(strip=True)
+                        if not name:
+                            continue
                         val_text = cols[-1].get_text(strip=True)
                         try:
                             # Extract first decimal number from text
