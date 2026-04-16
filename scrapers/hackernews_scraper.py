@@ -17,19 +17,28 @@ from scrapers.base import BaseScraper
 logger = logging.getLogger(__name__)
 
 # Financial keywords to filter HN stories
+# Only multi-word phrases or unambiguous terms belong here (substring match).
 FINANCIAL_KEYWORDS = [
-    "stock", "crypto", "bitcoin", "ethereum", "market", "trading",
-    "fed", "interest rate", "inflation", "recession", "gdp",
+    "crypto", "bitcoin", "ethereum", "trading",
+    "interest rate", "inflation", "recession", "gdp",
     "startup funding", "ipo", "acquisition", "valuation",
-    "bank", "fintech", "defi", "treasury", "bond",
+    "fintech", "defi", "treasury",
     "regulation", "hedge fund", "venture capital",
     # Specific yield phrases to avoid matching programming "yield"
     "yield curve", "bond yield", "treasury yield", "dividend yield",
+    # Multi-word stock/market/bank phrases that are unambiguous
+    "stock market", "stock exchange", "stock price",
+    "central bank", "banking sector", "investment bank",
+    "bond market", "corporate bond",
+    "market cap", "bear market", "bull market",
 ]
 
 # Short keywords needing word-boundary matching to avoid false positives
-# ("sec" matches "secure"/"section" without boundaries)
-_FINANCIAL_WORD_RE = re.compile(r'\bsec\b')
+# e.g. "fed" matches "federated", "stock" matches "livestock",
+# "bank" matches "databank", "market" matches "supermarket"
+_FINANCIAL_WORD_RE = re.compile(
+    r'\b(?:sec|fed|stock|bank|bond|market)\b', re.IGNORECASE
+)
 
 
 class HackerNewsScraper(BaseScraper):

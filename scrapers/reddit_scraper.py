@@ -99,6 +99,12 @@ class RedditScraper(BaseScraper):
                 url = urlunparse(parsed)
             resp = await self._http.get(url)
 
+        # Invalidate cached OAuth token on auth failure so retries can re-auth
+        if resp.status_code == 401 and token:
+            logger.warning("[Reddit] OAuth token rejected (401), clearing cached token")
+            self._token = None
+            self._token_expiry = 0.0
+
         if resp.status_code == 429:
             raw_retry = resp.headers.get("Retry-After", "10")
             try:
