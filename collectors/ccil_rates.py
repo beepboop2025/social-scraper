@@ -139,7 +139,9 @@ class CCILCollector(BaseCollector):
             records = []
             tenors = {"overnight": "O/N", "14day": "14D", "1month": "1M", "3month": "3M"}
             for tenor_key, tenor_label in tenors.items():
-                value = data.get(tenor_key) or data.get(tenor_label)
+                value = data.get(tenor_key)
+                if value is None:
+                    value = data.get(tenor_label)
                 if value is not None:
                     try:
                         records.append({
@@ -167,7 +169,9 @@ class CCILCollector(BaseCollector):
             if not isinstance(data, dict):
                 logger.warning(f"[CCIL] TREPS returned non-dict response: {type(data).__name__}")
                 return []
-            value = data.get("weighted_avg") or data.get("rate")
+            value = data.get("weighted_avg")
+            if value is None:
+                value = data.get("rate")
             if value is None:
                 logger.warning("[CCIL] TREPS response missing rate value")
                 return []
@@ -200,7 +204,9 @@ class CCILCollector(BaseCollector):
             records = []
             tenors = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "15Y", "20Y", "30Y"]
             for t in tenors:
-                value = data.get(t) or data.get(t.lower())
+                value = data.get(t)
+                if value is None:
+                    value = data.get(t.lower())
                 if value is not None:
                     try:
                         records.append({
@@ -232,7 +238,9 @@ class CCILCollector(BaseCollector):
             records = []
             tenors = ["1M", "3M", "6M", "12M"]
             for t in tenors:
-                value = data.get(t) or data.get(t.lower())
+                value = data.get(t)
+                if value is None:
+                    value = data.get(t.lower())
                 if value is not None:
                     try:
                         records.append({
