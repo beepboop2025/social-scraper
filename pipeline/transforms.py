@@ -26,6 +26,9 @@ def extract_mentions(text: str) -> list[str]:
 
 def compute_engagement_score(likes: int, reposts: int, replies: int, views: int | None) -> float:
     """Compute a normalized engagement score."""
+    likes = likes or 0
+    reposts = reposts or 0
+    replies = replies or 0
     base = likes + reposts * 2 + replies * 3
     if views and views > 0:
         return round(base / views * 1000, 2)  # Engagement rate per 1000 views

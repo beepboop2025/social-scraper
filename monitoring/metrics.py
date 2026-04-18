@@ -118,9 +118,12 @@ class _Histogram:
                 for b, count in sorted(data["buckets"].items()):
                     le = "+Inf" if b == float("inf") else str(b)
                     lines.append(f"{prefix}le=\"{le}\"}} {count}")
-                base = f"{self.name}{{{label_str}}}" if label_str else self.name
-                lines.append(f"{base}_sum {data['sum']}")
-                lines.append(f"{base}_count {data['count']}")
+                if label_str:
+                    lines.append(f"{self.name}_sum{{{label_str}}} {data['sum']}")
+                    lines.append(f"{self.name}_count{{{label_str}}} {data['count']}")
+                else:
+                    lines.append(f"{self.name}_sum {data['sum']}")
+                    lines.append(f"{self.name}_count {data['count']}")
         return lines
 
 

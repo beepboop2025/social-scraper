@@ -37,7 +37,7 @@ def _send_to_dlq(message, error: str):
         finally:
             mgr.close()
     except Exception as e:
-        logger.debug(f"[Consumer] DLQ send failed: {e}")
+        logger.warning(f"[Consumer] DLQ send failed (message may be lost): {e}")
 
 
 def _safe_parse_datetime(value: str | None) -> datetime:
