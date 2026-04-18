@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 
 # Cache language detection results
 _langdetect_available = None
+_langdetect_seeded = False
 
 
 def _check_langdetect():
-    """Check if langdetect is available."""
-    global _langdetect_available
+    """Check if langdetect is available. Seeds DetectorFactory once."""
+    global _langdetect_available, _langdetect_seeded
     if _langdetect_available is None:
         try:
             import langdetect
@@ -27,6 +28,10 @@ def _check_langdetect():
         except ImportError:
             _langdetect_available = False
             logger.warning("[LangDetect] langdetect not installed, defaulting to 'en'")
+    if _langdetect_available and not _langdetect_seeded:
+        from langdetect import DetectorFactory
+        DetectorFactory.seed = 42
+        _langdetect_seeded = True
     return _langdetect_available
 
 
@@ -42,9 +47,7 @@ def detect_language(text: str) -> str:
         return "en"
 
     try:
-        from langdetect import detect, DetectorFactory
-        # Make detection deterministic
-        DetectorFactory.seed = 42
+        from langdetect import detect
         lang = detect(text[:1000])
         return lang
     except Exception:
@@ -60,8 +63,7 @@ def detect_language_with_confidence(text: str) -> dict:
         return {"language": "en", "confidence": 1.0, "alternatives": []}
 
     try:
-        from langdetect import detect_langs, DetectorFactory
-        DetectorFactory.seed = 42
+        from langdetect import detect_langs
         results = detect_langs(text[:1000])
         if not results:
             return {"language": "en", "confidence": 1.0, "alternatives": []}

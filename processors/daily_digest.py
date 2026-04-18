@@ -7,7 +7,7 @@ Stores the digest and optionally sends via Telegram.
 
 import logging
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from core.base_processor import BaseProcessor
 
@@ -144,7 +144,7 @@ class DailyDigestGenerator(BaseProcessor):
             db.close()
 
     def _build_context(self, articles, sentiments, entities, topics, econ_data, digest_date=None) -> str:
-        lines = [f"=== Daily Economic Briefing ({digest_date or date.today()}) ===\n"]
+        lines = [f"=== Daily Economic Briefing ({digest_date or datetime.now(timezone.utc).date()}) ===\n"]
 
         lines.append(f"\n--- {len(articles)} Articles Collected ---")
         for a in articles[:20]:
@@ -215,7 +215,7 @@ class DailyDigestGenerator(BaseProcessor):
             logger.warning(f"[DailyDigest] Ollama failed: {e}")
 
         # Final fallback: rule-based summary
-        return f"Daily briefing for {date.today()}: Collected data from multiple sources. See dashboard for details."
+        return f"Daily briefing for {datetime.now(timezone.utc).date()}: Collected data from multiple sources. See dashboard for details."
 
     @staticmethod
     def _escape_markdown(text: str) -> str:

@@ -6,7 +6,6 @@ and updates the article's full_text field.
 
 import io
 import logging
-import tempfile
 
 from core.base_processor import BaseProcessor
 
@@ -43,12 +42,13 @@ class PDFExtractor(BaseProcessor):
         if not is_pdf and article.get("full_text", "").strip():
             return {"article_id": article_id, "status": "skipped", "reason": "not_pdf"}
 
+        known_content_length = 0
         if not is_pdf:
-            is_pdf = self._check_content_type(url)
+            is_pdf, known_content_length = self._check_content_type(url)
             if not is_pdf:
                 return {"article_id": article_id, "status": "skipped", "reason": "not_pdf"}
 
-        text = self._extract_pdf(url)
+        text = self._extract_pdf(url, known_content_length=known_content_length)
         if text and len(text.strip()) > 50:
             return {
                 "article_id": article_id,
@@ -59,30 +59,39 @@ class PDFExtractor(BaseProcessor):
 
         return {"article_id": article_id, "status": "failed"}
 
-    def _check_content_type(self, url: str) -> bool:
+    def _check_content_type(self, url: str) -> tuple[bool, int]:
+        """Check if URL serves a PDF. Returns (is_pdf, content_length)."""
         try:
             import httpx
 
             resp = httpx.head(url, timeout=10, follow_redirects=True, headers=_HEADERS)
             ct = resp.headers.get("content-type", "")
-            return any(t in ct for t in PDF_CONTENT_TYPES)
+            is_pdf = any(t in ct for t in PDF_CONTENT_TYPES)
+            try:
+                content_length = int(resp.headers.get("content-length", 0))
+            except (ValueError, TypeError):
+                content_length = 0
+            return is_pdf, content_length
         except Exception:
-            return False
+            return False, 0
 
-    def _extract_pdf(self, url: str) -> str | None:
+    def _extract_pdf(self, url: str, known_content_length: int = 0) -> str | None:
         try:
             import httpx
             import pdfplumber
 
-            # Check size before downloading to avoid OOM on huge PDFs
-            try:
-                head = httpx.head(url, timeout=10, follow_redirects=True, headers=_HEADERS)
-                content_length = int(head.headers.get("content-length", 0))
-                if content_length > self.max_bytes:
-                    logger.warning(f"[PDFExtractor] Skipping {url}: {content_length} bytes exceeds {self.max_bytes} limit")
-                    return None
-            except (httpx.HTTPError, ValueError):
-                pass  # HEAD failed or no content-length — proceed cautiously
+            # Check size before downloading to avoid OOM on huge PDFs.
+            # Reuse content-length from a prior HEAD when available.
+            content_length = known_content_length
+            if not content_length:
+                try:
+                    head = httpx.head(url, timeout=10, follow_redirects=True, headers=_HEADERS)
+                    content_length = int(head.headers.get("content-length", 0))
+                except (httpx.HTTPError, ValueError):
+                    pass  # HEAD failed or no content-length — proceed cautiously
+            if content_length > self.max_bytes:
+                logger.warning(f"[PDFExtractor] Skipping {url}: {content_length} bytes exceeds {self.max_bytes} limit")
+                return None
 
             resp = httpx.get(url, timeout=self.timeout, follow_redirects=True, headers=_HEADERS)
             if resp.status_code != 200:
