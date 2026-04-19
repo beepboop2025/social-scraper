@@ -58,7 +58,11 @@ class RBIDbie(BaseCollector):
         if resp.status_code != 200:
             # Try scraping the page
             return await self._scrape_rbi_page("forex-reserves")
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            logger.warning("[RBI-DBIE] forex_reserves returned 200 but non-JSON body, falling back to scrape")
+            return await self._scrape_rbi_page("forex-reserves")
         return self._normalize_rbi_response(data, "forex_reserves")
 
     async def _collect_wss(self) -> list[dict]:
@@ -166,6 +170,8 @@ class RBIDbie(BaseCollector):
 
     def _normalize_rbi_response(self, data: dict, dataset: str) -> list[dict]:
         records = []
+        if not data:
+            return records
         items = data if isinstance(data, list) else data.get("data", data.get("records", []))
         for item in items if isinstance(items, list) else []:
             for key, value in item.items():

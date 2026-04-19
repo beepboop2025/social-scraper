@@ -31,8 +31,12 @@ class NSEBhavcopy(BaseCollector):
 
         The httpx client auto-persists cookies from the response, so we
         don't need the return value — just hitting the homepage is enough.
+        Raises on non-200 so the caller aborts rather than making
+        unauthenticated API calls that silently return no data.
         """
-        await self._http.get(self.NSE_URL)
+        resp = await self._http.get(self.NSE_URL)
+        if resp.status_code != 200:
+            raise RuntimeError(f"NSE homepage returned {resp.status_code}, cookies not set")
 
     async def collect(self) -> list[dict]:
         records = []
