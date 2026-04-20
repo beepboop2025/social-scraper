@@ -221,15 +221,17 @@ class MetricsRegistry:
         try:
             import redis
             r = redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=5, socket_connect_timeout=5)
-            for q in ["collectors", "processors", "routing", "health", "celery"]:
-                try:
-                    depth = r.llen(q)
-                    self.queue_depth.set(depth, queue_name=q)
-                except Exception:
-                    pass
-            r.close()
-        except Exception:
-            pass
+            try:
+                for q in ["collectors", "processors", "routing", "health", "celery"]:
+                    try:
+                        depth = r.llen(q)
+                        self.queue_depth.set(depth, queue_name=q)
+                    except Exception:
+                        pass
+            finally:
+                r.close()
+        except Exception as e:
+            logger.debug(f"[Metrics] Queue depth refresh failed: {e}")
 
     def update_from_db(self):
         """Refresh metrics from database (called periodically).

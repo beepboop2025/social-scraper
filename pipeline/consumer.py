@@ -114,7 +114,9 @@ def run_consumer():
                         "item": enriched,
                         "enriched_at": datetime.now(timezone.utc).isoformat(),
                     })
-                    producer.flush()
+                    remaining = producer.flush(timeout=30)
+                    if remaining and remaining > 0:
+                        logger.warning(f"[Consumer] Flush timed out — {remaining} messages may be unsent")
 
                     # Store in PostgreSQL
                     db = SessionLocal()
