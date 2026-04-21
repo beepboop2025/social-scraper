@@ -91,7 +91,10 @@ class HackerNewsScraper(BaseScraper):
         except Exception:
             logger.error(f"[HN] Failed to parse story list JSON for {category}")
             return []
-        return ids[:limit] if ids else []
+        if not isinstance(ids, list):
+            logger.error(f"[HN] Expected list for {category}, got {type(ids).__name__}")
+            return []
+        return ids[:limit]
 
     def _parse_story(self, item: dict) -> ScrapedItem:
         content = ScrapedContent(

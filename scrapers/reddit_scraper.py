@@ -80,7 +80,7 @@ class RedditScraper(BaseScraper):
             logger.warning(f"[Reddit] OAuth token request failed: {e}")
         return None
 
-    async def _fetch_json(self, url: str) -> dict | list:
+    async def _fetch_json(self, url: str, _retry_on_401: bool = True) -> dict | list:
         """Fetch JSON from Reddit, using OAuth if available."""
         token = await self._get_oauth_token()
         if token:
@@ -99,11 +99,15 @@ class RedditScraper(BaseScraper):
                 url = urlunparse(parsed)
             resp = await self._http.get(url)
 
-        # Invalidate cached OAuth token on auth failure so retries can re-auth
+        # Invalidate cached OAuth token on auth failure and retry once with fresh token
         if resp.status_code == 401 and token:
-            logger.warning("[Reddit] OAuth token rejected (401), clearing cached token")
             self._token = None
             self._token_expiry = 0.0
+            if _retry_on_401:
+                logger.warning("[Reddit] OAuth token rejected (401), retrying with fresh auth")
+                original_url = url.replace("https://oauth.reddit.com", "https://www.reddit.com")
+                return await self._fetch_json(original_url, _retry_on_401=False)
+            logger.warning("[Reddit] OAuth token rejected (401) on retry, giving up")
 
         if resp.status_code == 429:
             raw_retry = resp.headers.get("Retry-After", "10")
