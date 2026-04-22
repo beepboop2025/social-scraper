@@ -262,6 +262,13 @@ class LiquiFiConnector:
             return True
         except Exception as e:
             logger.error(f"[LiquiFi] Redis push failed: {e}")
+            # Reset stale connection so _get_redis() will reconnect next call
+            if self._redis is not None:
+                try:
+                    await self._redis.close()
+                except Exception:
+                    pass
+                self._redis = None
             return False
 
     async def push_via_api(self, items: list[ScrapedItem], payload: dict) -> bool:

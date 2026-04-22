@@ -120,6 +120,7 @@ class DataRouter:
             self._stats["errors"] += 1
         except Exception as e:
             logger.warning(f"[Router] Kafka publish failed: {e}")
+            self._stats["errors"] += 1
 
     async def route(self, items: list[ScrapedItem]) -> dict:
         """Route items to their destinations.
