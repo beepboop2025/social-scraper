@@ -156,7 +156,7 @@ class RedditScraper(BaseScraper):
             source_url=f"https://reddit.com{data.get('permalink', '')}",
             source_channel=f"r/{data.get('subreddit', subreddit)}",
             hashtags=[],
-            urls=[data["url"]] if data.get("url") and not data["url"].startswith("https://www.reddit.com") else [],
+            urls=[data["url"]] if data.get("url") and not data["url"].startswith(("https://www.reddit.com", "https://reddit.com")) else [],
             raw_metadata={
                 "score": data.get("score", 0),
                 "upvote_ratio": data.get("upvote_ratio", 0),
@@ -211,6 +211,9 @@ class RedditScraper(BaseScraper):
         """Search Reddit for posts matching query."""
         url = f"https://www.reddit.com/search.json?q={quote(query)}&sort=new&limit={min(limit, 100)}"
         data = await self._fetch_json(url)
+        if not isinstance(data, dict):
+            logger.warning(f"[Reddit] Expected dict from search, got {type(data).__name__}")
+            return []
         items = []
         for child in data.get("data", {}).get("children", []):
             items.append(self._parse_post(child))
@@ -221,6 +224,9 @@ class RedditScraper(BaseScraper):
         subreddit = channel_id.removeprefix("r/").removeprefix("/")
         url = f"https://www.reddit.com/r/{subreddit}/new.json?limit={min(limit, 100)}"
         data = await self._fetch_json(url)
+        if not isinstance(data, dict):
+            logger.warning(f"[Reddit] Expected dict from r/{subreddit}, got {type(data).__name__}")
+            return []
         items = []
         for child in data.get("data", {}).get("children", []):
             items.append(self._parse_post(child, subreddit))

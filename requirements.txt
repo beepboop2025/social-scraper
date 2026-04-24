@@ -1,12 +1,12 @@
 # Core
 pydantic>=2.0.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 aiofiles>=23.0.0
 pyyaml>=6.0.0
 
 # HTTP clients
 httpx[socks]>=0.25.0
-requests>=2.31.0
+requests>=2.33.0
 
 # Twitter scraping
 twikit>=1.0.0
@@ -17,7 +17,7 @@ telethon>=1.28.0
 
 # Web scraping & article extraction
 beautifulsoup4>=4.12.0
-lxml>=5.0.0
+lxml>=6.1.0
 trafilatura>=1.6.0
 pdfplumber>=0.10.0
 
@@ -58,7 +58,7 @@ minio>=7.1.0
 anthropic>=0.34.0
 
 # API key vault encryption
-cryptography>=41.0.0
+cryptography>=46.0.7
 
 # Monitoring
 flower>=2.0.0
