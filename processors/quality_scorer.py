@@ -13,6 +13,7 @@ Quality scores are stored alongside articles in the database.
 
 import hashlib
 import logging
+import re
 import time
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
@@ -170,7 +171,7 @@ class QualityScorer:
 
         total_points = 0
         for keyword, weight in RELEVANCE_KEYWORDS.items():
-            if keyword in text:
+            if re.search(r'\b' + re.escape(keyword) + r'\b', text):
                 total_points += weight
 
         # Scale: 0 points -> 0, 5+ points -> 20
