@@ -44,7 +44,7 @@ def publish_batch(producer: KafkaProducer, items: list[dict], platform: str, flu
     for item in items:
         publish_scraped_item(producer, item, platform)
     remaining = producer.flush(timeout=flush_timeout)
-    if remaining > 0:
+    if remaining and remaining > 0:
         logger.warning(f"[Producer] Flush timed out after {flush_timeout}s — {remaining} messages unsent")
     else:
         logger.info(f"[Producer] Published {len(items)} items to {TOPIC_RAW}")

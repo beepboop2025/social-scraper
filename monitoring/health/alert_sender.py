@@ -62,7 +62,10 @@ async def send_telegram_alert(message: str, chat_id: str, bot_token: str) -> boo
                 if resp.status_code == 429:
                     # Rate limited — wait and retry once
                     import asyncio
-                    retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
+                    try:
+                        retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
+                    except Exception:
+                        retry_after = 5
                     await asyncio.sleep(retry_after)
                     retry_resp = await client.post(url, json={
                         "chat_id": chat_id,

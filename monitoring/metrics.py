@@ -287,13 +287,16 @@ class MetricsRegistry:
 
 # Singleton registry
 _registry: Optional[MetricsRegistry] = None
+_registry_lock = threading.Lock()
 
 
 def get_metrics_registry() -> MetricsRegistry:
     """Get or create the singleton metrics registry."""
     global _registry
     if _registry is None:
-        _registry = MetricsRegistry()
+        with _registry_lock:
+            if _registry is None:
+                _registry = MetricsRegistry()
     return _registry
 
 
