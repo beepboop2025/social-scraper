@@ -77,24 +77,26 @@ class RBIDbie(BaseCollector):
         # These are well-known rates — scrape from RBI's current rates page
         try:
             resp = await self._http.get("https://rbi.org.in/scripts/BS_NSDPDisplay.aspx?param=4")
-            if resp.status_code == 200:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, "html.parser")
-                tables = soup.find_all("table")
-                for table in tables:
-                    for row in table.find_all("tr"):
-                        cols = row.find_all("td")
-                        if len(cols) >= 2:
-                            name = cols[0].get_text(strip=True).lower()
-                            val_text = cols[-1].get_text(strip=True)
-                            match = re.search(r"(\d+\.?\d*)", val_text)
-                            if match and any(kw in name for kw in ["repo", "bank rate", "msf", "reverse", "crr", "slr", "sdf", "standing deposit"]):
-                                records.append({
-                                    "indicator": f"rbi_{name.replace(' ', '_')}",
-                                    "value": float(match.group(1)),
-                                    "date": datetime.now(timezone.utc).isoformat(),
-                                    "dataset": "interest_rates",
-                                })
+            if resp.status_code != 200:
+                logger.warning(f"[RBI-DBIE] Interest rates page returned HTTP {resp.status_code}")
+                return records
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text, "html.parser")
+            tables = soup.find_all("table")
+            for table in tables:
+                for row in table.find_all("tr"):
+                    cols = row.find_all("td")
+                    if len(cols) >= 2:
+                        name = cols[0].get_text(strip=True).lower()
+                        val_text = cols[-1].get_text(strip=True)
+                        match = re.search(r"(\d+\.?\d*)", val_text)
+                        if match and any(kw in name for kw in ["repo", "bank rate", "msf", "reverse", "crr", "slr", "sdf", "standing deposit"]):
+                            records.append({
+                                "indicator": f"rbi_{name.replace(' ', '_')}",
+                                "value": float(match.group(1)),
+                                "date": datetime.now(timezone.utc).isoformat(),
+                                "dataset": "interest_rates",
+                            })
         except Exception as e:
             logger.warning(f"[RBI-DBIE] Interest rates scrape failed: {e}")
         return records
@@ -104,24 +106,26 @@ class RBIDbie(BaseCollector):
         records = []
         try:
             resp = await self._http.get("https://rbi.org.in/scripts/ReferenceRateArchive.aspx")
-            if resp.status_code == 200:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, "html.parser")
-                table = soup.find("table", id=lambda x: x and "grdReport" in str(x))
-                if table:
-                    for row in table.find_all("tr")[1:5]:
-                        cols = row.find_all("td")
-                        if len(cols) >= 2:
-                            currency = cols[0].get_text(strip=True)
-                            rate_text = cols[1].get_text(strip=True)
-                            match = re.search(r"(\d+\.?\d*)", rate_text)
-                            if match:
-                                records.append({
-                                    "indicator": f"rbi_ref_{currency.lower().replace('/', '_')}",
-                                    "value": float(match.group(1)),
-                                    "date": datetime.now(timezone.utc).isoformat(),
-                                    "dataset": "exchange_rates",
-                                })
+            if resp.status_code != 200:
+                logger.warning(f"[RBI-DBIE] Exchange rates page returned HTTP {resp.status_code}")
+                return records
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text, "html.parser")
+            table = soup.find("table", id=lambda x: x and "grdReport" in str(x))
+            if table:
+                for row in table.find_all("tr")[1:5]:
+                    cols = row.find_all("td")
+                    if len(cols) >= 2:
+                        currency = cols[0].get_text(strip=True)
+                        rate_text = cols[1].get_text(strip=True)
+                        match = re.search(r"(\d+\.?\d*)", rate_text)
+                        if match:
+                            records.append({
+                                "indicator": f"rbi_ref_{currency.lower().replace('/', '_')}",
+                                "value": float(match.group(1)),
+                                "date": datetime.now(timezone.utc).isoformat(),
+                                "dataset": "exchange_rates",
+                            })
         except Exception as e:
             logger.warning(f"[RBI-DBIE] Exchange rates failed: {e}")
         return records
@@ -146,24 +150,26 @@ class RBIDbie(BaseCollector):
             return records
         try:
             resp = await self._http.get(f"https://rbi.org.in/scripts/PublicationsView.aspx?Id={page_id}")
-            if resp.status_code == 200:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, "html.parser")
-                tables = soup.find_all("table")
-                for table in tables[:3]:
-                    for row in table.find_all("tr"):
-                        cols = row.find_all("td")
-                        if len(cols) >= 2:
-                            name = cols[0].get_text(strip=True)
-                            val = cols[-1].get_text(strip=True)
-                            match = re.search(r"[\d,]+\.?\d*", val)
-                            if match and name:
-                                records.append({
-                                    "indicator": f"rbi_{page}_{name[:50].lower().replace(' ', '_')}",
-                                    "value": float(match.group().replace(",", "")),
-                                    "date": datetime.now(timezone.utc).isoformat(),
-                                    "dataset": page,
-                                })
+            if resp.status_code != 200:
+                logger.warning(f"[RBI-DBIE] Scrape {page} returned HTTP {resp.status_code}")
+                return records
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text, "html.parser")
+            tables = soup.find_all("table")
+            for table in tables[:3]:
+                for row in table.find_all("tr"):
+                    cols = row.find_all("td")
+                    if len(cols) >= 2:
+                        name = cols[0].get_text(strip=True)
+                        val = cols[-1].get_text(strip=True)
+                        match = re.search(r"[\d,]+\.?\d*", val)
+                        if match and name:
+                            records.append({
+                                "indicator": f"rbi_{page}_{name[:50].lower().replace(' ', '_')}",
+                                "value": float(match.group().replace(",", "")),
+                                "date": datetime.now(timezone.utc).isoformat(),
+                                "dataset": page,
+                            })
         except Exception as e:
             logger.warning(f"[RBI-DBIE] Scrape {page} failed: {e}")
         return records

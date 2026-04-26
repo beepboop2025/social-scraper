@@ -49,7 +49,9 @@ class NSEBhavcopy(BaseCollector):
         if "fii_dii" in self.types:
             try:
                 resp = await self._http.get(f"{self.NSE_URL}/api/fiidiiTradeReact")
-                if resp.status_code == 200:
+                if resp.status_code != 200:
+                    logger.warning(f"[NSE] FII/DII API returned HTTP {resp.status_code}")
+                else:
                     data = resp.json()
                     for item in data if isinstance(data, list) else [data]:
                         records.append({
@@ -66,7 +68,9 @@ class NSEBhavcopy(BaseCollector):
                     f"{self.NSE_URL}/api/historical/cm/equity",
                     params={"symbol": "NIFTY 50"},
                 )
-                if resp.status_code == 200:
+                if resp.status_code != 200:
+                    logger.warning(f"[NSE] Equity API returned HTTP {resp.status_code}")
+                else:
                     data = resp.json()
                     records.append({"indicator": "nse_equity_snapshot", "data": data, "type": "equity"})
             except Exception as e:
@@ -80,7 +84,9 @@ class NSEBhavcopy(BaseCollector):
                     f"{self.NSE_URL}/api/reports",
                     params={"archives": f"[{{\"name\":\"F&O - Loss Data\",\"type\":\"archives\",\"reportType\":\"derivatives\",\"dt\":\"{date_str}\"}}]"},
                 )
-                if resp.status_code == 200:
+                if resp.status_code != 200:
+                    logger.warning(f"[NSE] Derivatives API returned HTTP {resp.status_code}")
+                else:
                     data = resp.json()
                     records.append({"indicator": "nse_derivatives_snapshot", "data": data, "type": "derivatives"})
             except Exception as e:
