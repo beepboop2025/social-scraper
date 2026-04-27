@@ -20,6 +20,7 @@ class TelegramAlertBot:
             return False
 
         try:
+            import time
             import httpx
 
             resp = httpx.post(
@@ -31,7 +32,25 @@ class TelegramAlertBot:
                 },
                 timeout=10,
             )
-            return resp.status_code == 200
+            if resp.status_code == 429:
+                try:
+                    retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
+                except Exception:
+                    retry_after = 5
+                time.sleep(min(retry_after, 30))
+                resp = httpx.post(
+                    f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
+                    json={
+                        "chat_id": self.chat_id,
+                        "text": message[:4096],
+                        "parse_mode": parse_mode,
+                    },
+                    timeout=10,
+                )
+            if resp.status_code != 200:
+                logger.warning(f"[TelegramBot] API returned {resp.status_code}: {resp.text[:200]}")
+                return False
+            return True
         except Exception as e:
             logger.warning(f"[TelegramBot] Send failed: {e}")
             return False

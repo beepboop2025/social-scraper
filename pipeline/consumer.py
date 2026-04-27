@@ -155,7 +155,9 @@ def run_consumer():
                     _send_to_dlq(message, str(e))
                     consumer.commit()
     finally:
-        producer.flush()
+        remaining = producer.flush(timeout=30)
+        if remaining and remaining > 0:
+            logger.warning(f"[Consumer] Shutdown flush timed out — {remaining} messages may be unsent")
         consumer.close()
         producer.close()
         logger.info("[Consumer] Shut down cleanly.")
