@@ -237,7 +237,7 @@ class RedditScraper(BaseScraper):
         url = post_url.rstrip("/") + f".json?limit={limit}"
         data = await self._fetch_json(url)
         items = []
-        if isinstance(data, list) and len(data) > 1:
+        if isinstance(data, list) and len(data) > 1 and isinstance(data[1], dict):
             for child in data[1].get("data", {}).get("children", []):
                 item = self._parse_comment(child)
                 if item:

@@ -220,33 +220,43 @@ async def _scrape_and_route(scraper_factory, method_name: str, **kwargs):
 
 
 async def _store_scraped_items(items):
-    """Store scraped items in v4 articles table (not the old scraped_posts)."""
+    """Store scraped items in v4 articles table (not the old scraped_posts).
+
+    Uses INSERT ... ON CONFLICT (url_hash) DO NOTHING to avoid batch failure
+    when the Redis dedup cache expires and previously-stored items reappear.
+    """
     try:
         import hashlib
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
         from api.database import SessionLocal
         from storage.models import Article
 
         db = SessionLocal()
         try:
+            rows = []
             for item in items:
                 u = item.unified
                 url = u.source_url or ""
                 url_hash = hashlib.sha256(url.encode()).hexdigest()[:32] if url else None
 
-                article = Article(
-                    source=u.platform.value,
-                    source_type="social",
-                    url=url,
-                    url_hash=url_hash,
-                    title=u.raw_metadata.get("title", u.text[:200] if u.text else ""),
-                    author=(u.author.username or u.author.display_name) if u.author else "",
-                    published_at=u.created_at or datetime.now(timezone.utc),
-                    collected_at=datetime.now(timezone.utc),
-                    full_text=u.text[:10000] if u.text else "",
-                    category=u.platform.value,
-                )
-                db.merge(article)
-            db.commit()
+                rows.append({
+                    "source": u.platform.value,
+                    "source_type": "social",
+                    "url": url,
+                    "url_hash": url_hash,
+                    "title": u.raw_metadata.get("title", u.text[:200] if u.text else ""),
+                    "author": (u.author.username or u.author.display_name) if u.author else "",
+                    "published_at": u.created_at or datetime.now(timezone.utc),
+                    "collected_at": datetime.now(timezone.utc),
+                    "full_text": u.text[:10000] if u.text else "",
+                    "category": u.platform.value,
+                })
+
+            if rows:
+                stmt = pg_insert(Article).values(rows)
+                stmt = stmt.on_conflict_do_nothing(index_elements=["url_hash"])
+                db.execute(stmt)
+                db.commit()
         finally:
             db.close()
     except Exception as e:
